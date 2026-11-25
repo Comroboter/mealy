@@ -1,0 +1,1899 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Transduktor</title>
+<meta name="description" content="Mealy- und Moore-Automaten zeichnen, animieren, prüfen, umwandeln und minimieren. Läuft komplett im Browser.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2314171c'/%3E%3Ccircle cx='16' cy='16' r='7.5' fill='none' stroke='%23fff' stroke-width='2.2'/%3E%3Crect x='2' y='9' width='7' height='3.5' fill='%237ba3ff'/%3E%3Crect x='23' y='19.5' width='7' height='3.5' fill='%23ff8d61'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,600;1,400;1,500&family=Fira+Mono:wght@400;500&family=Fira+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* VOICE   Werkzeug für die Schule: ruhig, präzise, schnell zu bedienen
+   IDEA    ein Fernschreiber-Transduktor: Zeichenblatt in einem dunklen Rahmen, zwei Papierstreifen laufen durch den Lesekopf
+   PICTURE der Automat selbst, groß auf dem Blatt, mit Token, das über die Kanten läuft
+   COLOUR  Weißes Blatt, Tusche-Rahmen #14171c, Eingabe Kobalt #2457c5, Ausgabe Zinnober #d9441b (wie in der PDF-Übersicht)
+   TYPE    Fira Sans für die Oberfläche, Crimson Pro kursiv für Zustandsnamen wie im Lehrbuch, Fira Mono für Bänder und Code
+   LAYOUT  Laptop: Rahmen oben und links, Blatt in der Mitte, Panel rechts, Bänder unten. Handy: Blatt oben, Bänder unten, Panel als Blatt von unten */
+:root{color-scheme:light dark;
+  --frame:light-dark(#14171c,#0a0c10);--frame-ink:#e9edf3;--frame-mute:#8c95a4;--frame-hi:light-dark(#262b33,#1b2028);
+  --paper:light-dark(#ffffff,#161a21);--chrome:light-dark(#ffffff,#1b2029);--sunk:light-dark(#f3f4f6,#12161c);
+  --ink:light-dark(#14171c,#e8ecf2);--mute:light-dark(#5b6472,#9aa4b4);--rule:light-dark(#dde1e6,#2b323e);--dot:light-dark(#d3d8df,#2a313c);
+  --in:light-dark(#2457c5,#7ba3ff);--out:light-dark(#d9441b,#ff8d61);--err:light-dark(#b0123e,#ff6b8f);--okc:light-dark(#18794e,#53d394);
+  --in-soft:color-mix(in srgb,var(--in) 13%,transparent);--out-soft:color-mix(in srgb,var(--out) 14%,transparent);
+  --sel:light-dark(#2457c5,#7ba3ff);
+  --sans:"Fira Sans",system-ui,-apple-system,"Segoe UI",sans-serif;--mono:"Fira Mono",ui-monospace,Menlo,Consolas,monospace;--serif:"Crimson Pro",Georgia,"Times New Roman",serif}
+:root[data-theme=light]{color-scheme:light}
+:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+html,body{height:100%;margin:0}
+body{background:var(--frame);color:var(--ink);font:15px/1.45 var(--sans);overflow:hidden;-webkit-text-size-adjust:100%}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--sel);outline-offset:2px}
+.st-name{font-family:var(--serif);font-style:italic;font-size:1.12em}
+.st-name sub{font-size:.7em;font-style:normal}
+.sym-i{color:var(--in);font-weight:500}
+.sym-o{color:var(--out);font-weight:500}
+
+/* ---------- Grundgerüst ---------- */
+#app{height:100%;display:grid;grid-template-rows:52px minmax(0,1fr)}
+header{display:flex;align-items:center;gap:6px;padding:0 10px 0 12px;background:var(--frame);color:var(--frame-ink);position:relative;z-index:30}
+.brand{display:flex;align-items:center;gap:9px;margin-right:10px;white-space:nowrap}
+.brand b{font-family:var(--serif);font-weight:600;font-size:22px;letter-spacing:-.01em}
+.brand svg{flex:none}
+.menus{display:flex;gap:2px}
+.hbtn{background:none;border:0;color:var(--frame-ink);height:36px;padding:0 11px;border-radius:6px;font-size:14.5px;display:inline-flex;align-items:center;gap:7px}
+.hbtn:hover,.hbtn[aria-expanded=true]{background:var(--frame-hi)}
+.hbtn:disabled{opacity:.35;cursor:default;background:none}
+.hbtn svg{width:18px;height:18px}
+.spacer{flex:1}
+.seg{display:inline-flex;background:var(--frame-hi);border-radius:8px;padding:3px;gap:2px}
+.seg button{border:0;background:none;color:var(--frame-mute);height:30px;padding:0 12px;border-radius:6px;font-size:14px}
+.seg button[aria-pressed=true]{background:var(--frame-ink);color:var(--frame)}
+.hdiv{width:1px;height:22px;background:var(--frame-hi);margin:0 4px}
+.only-narrow{display:none}
+
+.dd{position:absolute;top:46px;min-width:250px;background:var(--chrome);color:var(--ink);border:1px solid var(--rule);border-radius:10px;padding:6px;box-shadow:0 18px 40px -12px rgba(0,0,0,.35);z-index:40}
+.dd[hidden]{display:none}
+.dd button{display:flex;width:100%;text-align:left;align-items:baseline;gap:10px;background:none;border:0;border-radius:6px;padding:8px 10px;font-size:14.5px}
+.dd button:hover,.dd button:focus-visible{background:var(--sunk)}
+.dd button small{margin-left:auto;color:var(--mute);font-size:12.5px;white-space:nowrap}
+.dd .note{display:block;color:var(--mute);font-size:13px;margin-top:1px}
+.dd .col{display:block}
+.dd hr{border:0;border-top:1px solid var(--rule);margin:5px 4px}
+.dd h4{margin:6px 10px 4px;font-size:12.5px;font-weight:500;color:var(--mute)}
+
+main{display:grid;grid-template-columns:52px minmax(0,1fr) 376px;grid-template-rows:minmax(0,1fr) auto;grid-template-areas:"tools canvas panel" "tools dock panel";min-height:0}
+#tools{grid-area:tools;display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 0;background:var(--frame)}
+.tbtn{width:40px;height:40px;border:0;border-radius:8px;background:none;color:var(--frame-mute);display:grid;place-items:center;position:relative}
+.tbtn svg{width:21px;height:21px}
+.tbtn:hover{background:var(--frame-hi);color:var(--frame-ink)}
+.tbtn[aria-pressed=true]{background:var(--frame-ink);color:var(--frame)}
+.tbtn .k{position:absolute;right:3px;bottom:1px;font-size:9.5px;opacity:.7}
+.tsep{width:24px;height:1px;background:var(--frame-hi);margin:6px 0}
+
+/* ---------- Zeichenblatt ---------- */
+#stage{grid-area:canvas;position:relative;background:var(--paper);overflow:hidden;border-top-left-radius:10px}
+#cv{position:absolute;inset:0;width:100%;height:100%;touch-action:none;user-select:none;-webkit-user-select:none;display:block}
+#cv.panning{cursor:grabbing}
+#cv[data-tool=state]{cursor:copy}
+#cv[data-tool=edge]{cursor:crosshair}
+#cv[data-tool=delete]{cursor:not-allowed}
+.grid-dot{fill:var(--dot)}
+.st-c{fill:var(--paper);stroke:var(--ink);stroke-width:1.6}
+.st-hit{fill:transparent}
+.st-n{font-family:var(--serif);font-style:italic;font-size:21px;fill:var(--ink);text-anchor:middle;pointer-events:none}
+.st-n .sub{font-style:normal;font-size:14px}
+.st-o{font-family:var(--sans);font-weight:500;font-size:14px;fill:var(--out);text-anchor:middle;pointer-events:none}
+.st-div{stroke:var(--rule);stroke-width:1.2}
+.st-start{stroke:var(--ink);stroke-width:1.6;fill:none}
+.st.sel .st-c{stroke:var(--ink);stroke-width:3.2}
+.st.sel .st-ring{display:block}
+.st-ring{display:none;fill:none;stroke:var(--ink);stroke-width:1;stroke-dasharray:3 4;opacity:.55}
+.st.pending .st-c{stroke:var(--in);stroke-dasharray:4 3;stroke-width:2.4}
+.st.hot .st-c{fill:var(--in-soft);stroke:var(--in);stroke-width:2.8}
+.st.err .st-c{stroke:var(--err);stroke-width:2.6}
+.st.del:hover .st-c{stroke:var(--err)}
+.knob{fill:var(--paper);stroke:var(--in);stroke-width:1.5;opacity:0;transition:opacity .12s;cursor:crosshair}
+.knob-p{stroke:var(--in);stroke-width:1.6;pointer-events:none;opacity:0;transition:opacity .12s}
+.st:hover .knob,.st:hover .knob-p,.st.sel .knob,.st.sel .knob-p{opacity:1}
+#cv[data-tool=delete] .knob,#cv[data-tool=delete] .knob-p{display:none}
+.ed-p{fill:none;stroke:var(--ink);stroke-width:1.5}
+.ed-hit{fill:none;stroke:transparent;stroke-width:16}
+.ed.sel .ed-p{stroke:var(--ink);stroke-width:2.8}
+.ed.hot .ed-p{stroke:var(--in);stroke-width:2.6}
+.ed.del:hover .ed-p{stroke:var(--err)}
+.lb{cursor:grab}
+.lb-bg{fill:var(--paper);stroke:none}
+.ed.sel .lb-bg{fill:var(--paper);stroke:var(--ink);stroke-width:1.2;stroke-dasharray:3 3}
+.lb-hot{fill:var(--in-soft)}
+.lb text{font-family:var(--sans);font-size:15px;font-weight:500;text-anchor:middle;pointer-events:none}
+.lb .i{fill:var(--in)}
+.lb .o{fill:var(--out)}
+.lb .s{fill:var(--mute);font-weight:400}
+.lb .miss{fill:var(--err)}
+#gO{pointer-events:none}
+.ghost{stroke:var(--in);stroke-width:1.8;stroke-dasharray:6 5;fill:none}
+.token{fill:var(--in);stroke:var(--paper);stroke-width:2.5}
+.token-o{font:600 13px var(--sans);fill:var(--out);text-anchor:middle;paint-order:stroke;stroke:var(--paper);stroke-width:4px}
+
+.fl{position:absolute;display:flex;gap:6px;z-index:5}
+.fl-zoom{right:12px;bottom:12px;flex-direction:column;background:var(--chrome);border:1px solid var(--rule);border-radius:10px;padding:3px}
+.fl-zoom button{width:38px;height:38px;border:0;background:none;border-radius:7px;display:grid;place-items:center;color:var(--ink)}
+.fl-zoom button:hover{background:var(--sunk)}
+.fl-zoom svg{width:19px;height:19px}
+.chip-stat{left:12px;top:12px;background:var(--chrome);border:1px solid var(--rule);border-radius:999px;padding:6px 12px 6px 10px;font-size:13.5px;align-items:center;gap:8px;cursor:pointer}
+.chip-stat i{width:9px;height:9px;border-radius:50%;background:var(--okc);flex:none}
+.chip-stat.warn i{background:var(--out)}
+.chip-stat.bad i{background:var(--err)}
+.hint[hidden]{display:none}
+.hint{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none;color:var(--mute);text-align:center;padding:24px}
+.hint div{max-width:340px}
+.hint b{display:block;font-family:var(--serif);font-size:24px;font-weight:600;color:var(--ink);margin-bottom:4px}
+
+/* Popover */
+#pop{position:absolute;z-index:20;width:268px;background:var(--chrome);border:1px solid var(--rule);border-radius:12px;padding:12px;box-shadow:0 18px 44px -14px rgba(0,0,0,.4)}
+#pop[hidden]{display:none}
+#pop h3{margin:0 0 8px;font-size:13px;font-weight:500;color:var(--mute);display:flex;align-items:center;justify-content:space-between}
+#pop h3 button{border:0;background:none;color:var(--mute);width:28px;height:28px;border-radius:6px;font-size:18px;line-height:1}
+.prow{display:flex;gap:6px;align-items:center;margin-bottom:7px}
+.prow label{font-size:13px;color:var(--mute);width:64px;flex:none}
+.inp{height:36px;border:1px solid var(--rule);border-radius:7px;background:var(--paper);padding:0 9px;font-size:16px;width:100%}
+.inp.sm{height:32px;font-size:15px;padding:0 7px}
+.inp.i{color:var(--in);font-weight:500}
+.inp.o{color:var(--out);font-weight:500}
+.inp:focus{border-color:var(--sel);outline:none;box-shadow:0 0 0 3px var(--in-soft)}
+.lrow{display:grid;grid-template-columns:minmax(0,1fr) 14px minmax(0,1fr) 32px;gap:5px;align-items:center;margin-bottom:6px}
+.lrow.moore{grid-template-columns:minmax(0,1fr) 32px}
+.lrow .sl{color:var(--mute);text-align:center}
+.x{width:32px;height:32px;border:0;background:none;border-radius:6px;color:var(--mute);font-size:18px}
+.x:hover{background:var(--sunk);color:var(--err)}
+.btn{height:36px;border:1px solid var(--rule);background:var(--paper);border-radius:8px;padding:0 12px;font-size:14.5px;display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.btn:hover{background:var(--sunk)}
+.btn.pri{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.btn.pri:hover{opacity:.9}
+.btn.danger{color:var(--err)}
+.btn.on{background:var(--in-soft);border-color:var(--in);color:var(--in)}
+.btn svg{width:16px;height:16px}
+.brow{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+
+/* ---------- Panel ---------- */
+#panel{grid-area:panel;background:var(--chrome);border-left:1px solid var(--rule);display:flex;flex-direction:column;min-height:0}
+.tabs{display:flex;gap:2px;padding:8px 8px 0;border-bottom:1px solid var(--rule);overflow-x:auto;flex:none;scrollbar-width:none}
+.tabs button{border:0;background:none;padding:9px 10px 10px;font-size:14px;color:var(--mute);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;display:flex;align-items:center;gap:6px}
+.tabs button[aria-selected=true]{color:var(--ink);border-bottom-color:var(--ink);font-weight:500}
+.tabs .badge{min-width:18px;height:18px;border-radius:9px;background:var(--out);color:#fff;font-size:11.5px;display:inline-grid;place-items:center;padding:0 5px}
+.tabs .badge.bad{background:var(--err)}
+.tabs .badge.ok{background:var(--okc)}
+.pbody{overflow:auto;padding:16px 16px 28px;flex:1}
+.sheet-head{display:none}
+.pbody h2{font-family:var(--serif);font-weight:600;font-size:23px;line-height:1.1;margin:0 0 4px;letter-spacing:-.01em}
+.pbody h3{font-size:14px;font-weight:600;margin:20px 0 8px}
+.pbody p{margin:0 0 10px}
+.mut{color:var(--mute);font-size:13.5px}
+.tuple{font-family:var(--serif);font-style:italic;font-size:26px;margin:6px 0 14px;white-space:nowrap;overflow-x:auto}
+.tuple .p{font-style:normal}
+.def{display:grid;grid-template-columns:auto minmax(0,1fr);gap:9px 12px;align-items:start}
+.def dt{font-family:var(--serif);font-style:italic;font-size:19px;line-height:30px;text-align:right}
+.def dd{margin:0;min-height:30px;display:flex;flex-wrap:wrap;gap:5px;align-items:center}
+.def .fn{font-family:var(--serif);font-style:italic;font-size:17px}
+.chip{display:inline-flex;align-items:center;gap:2px;height:28px;border-radius:14px;padding:0 4px 0 11px;font-weight:500;border:1px solid currentColor;background:none;font-size:14px}
+.chip.i{color:var(--in);background:var(--in-soft);border-color:transparent}
+.chip.o{color:var(--out);background:var(--out-soft);border-color:transparent}
+.chip.decl{background:none;border:1px dashed currentColor}
+.chip.q{color:var(--ink);background:var(--sunk);border-color:transparent;padding-right:11px}
+.chip button{border:0;background:none;color:inherit;width:22px;height:22px;border-radius:11px;font-size:15px;line-height:1;opacity:.7}
+.chip button:hover{opacity:1;background:color-mix(in srgb,currentColor 15%,transparent)}
+.chip button:disabled{display:none}
+.addsym{width:96px;height:28px;border:1px dashed var(--rule);border-radius:14px;background:none;padding:0 10px;font-size:14px}
+.addsym:focus{border-style:solid;border-color:var(--sel);outline:none}
+.fvals{font-family:var(--serif);font-size:16.5px;columns:2;column-gap:18px;margin:6px 0 0;padding:0;list-style:none}
+.fvals li{break-inside:avoid;white-space:nowrap}
+details.box{border:1px solid var(--rule);border-radius:10px;padding:10px 12px;margin-top:14px}
+details.box summary{cursor:pointer;font-weight:500;font-size:14px}
+.tbl-wrap{overflow-x:auto;margin:0 -2px}
+table.t{border-collapse:collapse;width:100%;font-size:14.5px}
+table.t th{font-weight:500;font-size:13px;color:var(--mute);text-align:left;padding:6px 6px;border-bottom:1px solid var(--rule);white-space:nowrap}
+table.t td{padding:5px 6px;border-bottom:1px solid var(--rule);vertical-align:middle}
+table.t tr.cur td{background:var(--in-soft)}
+table.t tr.stop td{background:color-mix(in srgb,var(--err) 10%,transparent)}
+table.t th.c,table.t td.c{text-align:center}
+.cell{display:flex;gap:4px;align-items:center;min-width:118px}
+.cell select{height:32px;border:1px solid var(--rule);border-radius:6px;background:var(--paper);padding:0 4px;font-family:var(--serif);font-style:italic;font-size:16px;min-width:56px}
+.cell select.empty{color:var(--err);border-color:color-mix(in srgb,var(--err) 50%,var(--rule))}
+.cell .inp{width:54px}
+.cell .warn{color:var(--err);font-size:12px}
+.rowh{display:flex;align-items:center;gap:5px;white-space:nowrap;cursor:pointer}
+.rowh .arr{color:var(--mute);font-size:13px;width:12px}
+.code{width:100%;min-height:330px;border:1px solid var(--rule);border-radius:10px;background:var(--paper);padding:12px;font:14px/1.6 var(--mono);resize:vertical;tab-size:2;white-space:pre;overflow:auto}
+.code:focus{outline:none;border-color:var(--sel);box-shadow:0 0 0 3px var(--in-soft)}
+.errs{list-style:none;margin:8px 0 0;padding:0;font-size:13.5px;color:var(--err)}
+.errs li{padding:3px 0}
+.syntax{font:13px/1.6 var(--mono);background:var(--sunk);border-radius:8px;padding:10px 12px;white-space:pre-wrap;color:var(--mute)}
+.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:10px 0 6px}
+.stat{background:var(--sunk);border-radius:10px;padding:9px 10px}
+.stat b{display:block;font-size:22px;font-weight:500;line-height:1.1;font-variant-numeric:tabular-nums}
+.stat span{font-size:12.5px;color:var(--mute)}
+.issues{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:8px}
+.issues li{display:grid;grid-template-columns:10px minmax(0,1fr);gap:10px;font-size:14px;align-items:start}
+.issues li i{width:10px;height:10px;border-radius:50%;margin-top:6px}
+.issues .error i{background:var(--err)}
+.issues .warn i{background:var(--out)}
+.issues .info i{background:var(--rule)}
+.issues .ok i{background:var(--okc)}
+.issues .btn{margin-top:6px;height:32px;font-size:13.5px}
+.rounds{display:grid;gap:6px;margin:8px 0}
+.round{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;font-size:14px}
+.round b{font-family:var(--serif);font-style:italic;font-weight:400;font-size:17px;width:26px}
+.cls{display:inline-flex;gap:3px;padding:2px 8px;border-radius:6px;background:var(--sunk);font-family:var(--serif);font-style:italic;font-size:16px}
+.task{background:var(--sunk);border-radius:12px;padding:14px;margin-bottom:14px}
+.task h2{font-size:21px}
+.pass{color:var(--okc);font-weight:600}
+.failc{color:var(--err);font-weight:600}
+.score{font-size:15px;margin:10px 0}
+.score b{font-size:20px}
+.tests td .inp{height:32px;font-size:15px}
+.tests{table-layout:fixed}
+.tests td{padding:5px 3px}
+.tests th{padding:6px 3px}
+.tests .inp{width:100%}
+.tests td:nth-child(3){font-family:var(--mono);font-size:14px;color:var(--out);overflow-wrap:anywhere}
+.tests .x{width:26px}
+.ref h3:first-child{margin-top:0}
+.ref table{margin:6px 0 12px}
+
+/* ---------- Bänder ---------- */
+#dock{grid-area:dock;background:var(--chrome);border-top:1px solid var(--rule);padding:10px 14px 12px;display:grid;gap:8px}
+.ctl{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.ctl label{font-size:13.5px;color:var(--mute)}
+#word{height:38px;border:1px solid var(--rule);border-radius:8px;background:var(--paper);padding:0 10px;font:500 16px var(--mono);color:var(--in);width:200px}
+#word:focus{outline:none;border-color:var(--in);box-shadow:0 0 0 3px var(--in-soft)}
+.pb{width:38px;height:38px;border:1px solid var(--rule);background:var(--paper);border-radius:8px;display:grid;place-items:center;color:var(--ink)}
+.pb:hover{background:var(--sunk)}
+.pb:disabled{opacity:.35;cursor:default}
+.pb.play{background:var(--in);border-color:var(--in);color:#fff;width:46px}
+.pb svg{width:18px;height:18px}
+.speed{display:flex;align-items:center;gap:6px;margin-left:4px}
+.speed input{width:90px;accent-color:var(--in)}
+.speed output{font-size:13px;color:var(--mute);width:34px;font-variant-numeric:tabular-nums}
+.formula{margin-left:auto;font-family:var(--serif);font-size:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.formula .m{color:var(--mute);font-family:var(--sans);font-size:13.5px}
+.tapes{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 10px;align-items:center}
+.tapes>span{font-size:13px;color:var(--mute)}
+.tape{display:flex;gap:0;overflow-x:auto;padding:12px 2px 2px;scrollbar-width:thin;position:relative}
+.cellt{flex:none;min-width:38px;height:38px;padding:0 8px;display:grid;place-items:center;font:500 16px var(--mono);border:1.5px solid;margin-right:-1.5px;position:relative;background:var(--paper)}
+.tape.tin .cellt{border-color:color-mix(in srgb,var(--in) 55%,var(--rule));color:var(--in)}
+.tape.tout .cellt{border-color:color-mix(in srgb,var(--out) 55%,var(--rule));color:var(--out)}
+.tape.tin .cellt.done{background:var(--in-soft)}
+.tape.tin .cellt.cur{border-color:var(--in);z-index:1;box-shadow:0 0 0 2px var(--in)}
+.tape.tin .cellt.cur::before{content:"";position:absolute;top:-11px;left:50%;margin-left:-6px;border:6px solid transparent;border-top-color:var(--in)}
+.tape.tin .cellt.bad{color:var(--err);border-color:var(--err);background:color-mix(in srgb,var(--err) 9%,transparent)}
+.tape.tout .cellt.empty{color:transparent;border-style:dashed}
+.tape.tout .cellt.fresh{animation:pop .35s ease-out}
+.tape.tout .cellt.init{background:var(--out-soft)}
+@keyframes pop{from{transform:translateY(-6px);opacity:0}to{transform:none;opacity:1}}
+.status{font-size:13.5px;color:var(--mute)}
+.status.bad{color:var(--err)}
+.status.done{color:var(--okc)}
+
+/* ---------- Dialog, Toast ---------- */
+#dlg{border:0;border-radius:14px;padding:0;width:min(720px,calc(100vw - 24px));max-height:calc(100% - 40px);background:var(--chrome);color:var(--ink);box-shadow:0 30px 80px -20px rgba(0,0,0,.5)}
+#dlg::backdrop{background:rgba(10,12,16,.45)}
+.dlg-h{display:flex;align-items:center;justify-content:space-between;padding:16px 18px 6px}
+.dlg-h h2{margin:0;font-family:var(--serif);font-weight:600;font-size:26px;letter-spacing:-.01em}
+.dlg-b{padding:6px 18px 18px;overflow:auto;max-height:calc(100vh - 140px)}
+.dlg-b pre{font:13px/1.55 var(--mono);background:var(--sunk);border-radius:10px;padding:12px;max-height:340px;overflow:auto;white-space:pre}
+.dlg-b textarea{width:100%;min-height:240px;font:13px/1.5 var(--mono);background:var(--sunk);border:1px solid var(--rule);border-radius:10px;padding:12px;resize:vertical}
+.keys{display:grid;grid-template-columns:auto minmax(0,1fr);gap:7px 16px;font-size:14.5px}
+kbd{font:12.5px var(--mono);border:1px solid var(--rule);border-bottom-width:2px;border-radius:5px;padding:2px 6px;background:var(--paper);white-space:nowrap}
+.cols2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+#toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,20px);background:var(--ink);color:var(--paper);padding:10px 16px;border-radius:10px;font-size:14.5px;opacity:0;pointer-events:none;transition:.2s;z-index:100;max-width:calc(100vw - 32px)}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+
+/* ---------- schmal ---------- */
+@media (max-width:1100px){main{grid-template-columns:52px minmax(0,1fr) 330px}.formula{display:none}}
+@media (max-width:820px){
+  .menus,.hide-narrow{display:none}
+  .only-narrow{display:inline-flex}
+  main{grid-template-columns:minmax(0,1fr);grid-template-areas:"canvas" "dock"}
+  #stage{border-radius:0}
+  #tools{position:absolute;left:10px;top:62px;z-index:12;flex-direction:row;padding:4px;border-radius:12px;gap:2px}
+  #tools .tsep{width:1px;height:24px;margin:0 3px}
+  #tools .k{display:none}
+  .chip-stat{top:auto;bottom:12px}
+  #panel{position:fixed;left:0;right:0;bottom:0;height:72%;z-index:50;border-left:0;border-radius:16px 16px 0 0;box-shadow:0 -20px 50px -10px rgba(0,0,0,.4);transform:translateY(105%);transition:transform .25s}
+  #app.panel-open #panel{transform:none}
+  .sheet-head{display:flex;justify-content:space-between;align-items:center;padding:8px 12px 0}
+  .sheet-head b{font-weight:500}
+  #word{width:100%;flex:1 1 100px}
+  .ctl label{display:none}
+  .pb{width:36px}
+  .pb.play{width:42px}
+  .status{flex-basis:100%}
+  .ctl{gap:5px}
+  .speed{display:none}
+  .dd{left:8px!important;right:8px;top:48px;max-height:calc(100vh - 70px);overflow:auto}
+  .brand b{font-size:20px}
+  .cols2{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:420px){.brand .sub{display:none}.seg button{padding:0 9px}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="brand">
+      <svg width="30" height="30" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="7.5" fill="none" stroke="currentColor" stroke-width="2.2"/><rect x="1" y="9" width="8" height="3.5" fill="#7ba3ff"/><rect x="23" y="19.5" width="8" height="3.5" fill="#ff8d61"/></svg>
+      <b>Transduktor</b>
+    </div>
+    <nav class="menus" id="menus">
+      <button class="hbtn" data-menu="datei" aria-haspopup="true" aria-expanded="false">Datei</button>
+      <button class="hbtn" data-menu="beispiele" aria-haspopup="true" aria-expanded="false">Beispiele</button>
+      <button class="hbtn" data-menu="aufgaben" aria-haspopup="true" aria-expanded="false">Aufgaben</button>
+      <button class="hbtn" data-menu="ansicht" aria-haspopup="true" aria-expanded="false">Ansicht</button>
+      <button class="hbtn" data-menu="hilfe" aria-haspopup="true" aria-expanded="false">Hilfe</button>
+    </nav>
+    <div class="spacer"></div>
+    <div class="seg" role="group" aria-label="Automatentyp">
+      <button id="tMealy" aria-pressed="true" title="Mealy: Ausgabe an der Kante">Mealy</button>
+      <button id="tMoore" aria-pressed="false" title="Moore: Ausgabe im Zustand">Moore</button>
+    </div>
+    <span class="hdiv hide-narrow"></span>
+    <button class="hbtn hide-narrow" id="bUndo" title="Rückgängig (Strg+Z)" aria-label="Rückgängig"></button>
+    <button class="hbtn hide-narrow" id="bRedo" title="Wiederholen (Strg+Y)" aria-label="Wiederholen"></button>
+    <button class="hbtn hide-narrow" id="bShare" title="Link zum Automaten kopieren"></button>
+    <button class="hbtn only-narrow" id="bMenu" data-menu="alles" aria-label="Menü" aria-haspopup="true" aria-expanded="false"></button>
+    <button class="hbtn only-narrow" id="bPanel" aria-label="Panel öffnen"></button>
+    <div class="dd" id="dd" hidden></div>
+  </header>
+  <main>
+    <div id="tools" role="toolbar" aria-label="Werkzeuge"></div>
+    <div id="stage">
+      <svg id="cv" data-tool="select" aria-label="Zeichenfläche">
+        <defs>
+          <pattern id="gp" width="24" height="24" patternUnits="userSpaceOnUse"><circle class="grid-dot" cx="12" cy="12" r="1.1"/></pattern>
+          <marker id="ar" viewBox="0 0 12 10" refX="11" refY="5" markerWidth="12" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0.5 L12,5 L0,9.5 L2.6,5 z" style="fill:var(--ink)"/></marker>
+          <marker id="arS" viewBox="0 0 12 10" refX="11" refY="5" markerWidth="13" markerHeight="11" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0.5 L12,5 L0,9.5 L2.6,5 z" style="fill:var(--sel)"/></marker>
+          <marker id="arH" viewBox="0 0 12 10" refX="11" refY="5" markerWidth="13" markerHeight="11" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0.5 L12,5 L0,9.5 L2.6,5 z" style="fill:var(--in)"/></marker>
+        </defs>
+        <g id="world"><rect id="gridr" x="-20000" y="-20000" width="40000" height="40000" fill="url(#gp)"/><g id="gE"></g><g id="gS"></g><g id="gO"></g></g>
+      </svg>
+      <button class="fl chip-stat" id="chip" title="Zur Prüfung"><i></i><span></span></button>
+      <div class="fl fl-zoom" role="group" aria-label="Ansicht">
+        <button id="zIn" title="Vergrößern" aria-label="Vergrößern"></button>
+        <button id="zOut" title="Verkleinern" aria-label="Verkleinern"></button>
+        <button id="zFit" title="Alles zeigen (F)" aria-label="Alles zeigen"></button>
+      </div>
+      <div class="hint" id="hint" hidden><div><b>Leeres Blatt</b>Doppelklick oder Doppeltipp legt einen Zustand an. Mit dem Kanten-Werkzeug ziehst du von Zustand zu Zustand. Oder nimm ein Beispiel aus dem Menü.</div></div>
+      <div id="pop" hidden></div>
+    </div>
+    <aside id="panel" aria-label="Details">
+      <div class="sheet-head"><b id="sheetTitle">Details</b><button class="x" id="bSheetClose" aria-label="Schließen">×</button></div>
+      <div class="tabs" role="tablist" id="tabs"></div>
+      <div class="pbody" id="pbody"></div>
+    </aside>
+    <section id="dock" aria-label="Simulation">
+      <div class="ctl">
+        <label for="word">Eingabe</label>
+        <input id="word" autocomplete="off" spellcheck="false" placeholder="z. B. 11212">
+        <button class="pb" id="sReset" title="Zurück zum Anfang (Pos1)" aria-label="Zurück zum Anfang"></button>
+        <button class="pb" id="sBack" title="Schritt zurück (←)" aria-label="Schritt zurück"></button>
+        <button class="pb play" id="sPlay" title="Abspielen (Leertaste)" aria-label="Abspielen"></button>
+        <button class="pb" id="sStep" title="Ein Schritt (→)" aria-label="Ein Schritt"></button>
+        <button class="pb" id="sEnd" title="Bis zum Ende (Ende)" aria-label="Bis zum Ende"></button>
+        <div class="speed"><input type="range" id="speed" min="0" max="4" step="1" value="2" aria-label="Tempo"><output id="speedO">1×</output></div>
+        <span class="status" id="status"></span>
+        <div class="formula" id="formula"></div>
+      </div>
+      <div class="tapes">
+        <span>Band</span><div class="tape tin" id="tapeIn" aria-label="Eingabeband"></div>
+        <span>Ausgabe</span><div class="tape tout" id="tapeOut" aria-label="Ausgabeband"></div>
+      </div>
+    </section>
+  </main>
+</div>
+<dialog id="dlg"><div class="dlg-h"><h2 id="dlgT"></h2><button class="x" id="dlgX" aria-label="Schließen">×</button></div><div class="dlg-b" id="dlgB"></div></dialog>
+<div id="toast" role="status" aria-live="polite"></div>
+<input type="file" id="fileIn" accept=".json,.txt,.mealy" hidden>
+<script>
+// ===== Transduktor: Kernlogik (ohne DOM) =====
+const Core = (() => {
+  let ctr = 0;
+  const uid = p => p + (Date.now() % 1e6).toString(36) + (ctr++).toString(36) + Math.random().toString(36).slice(2, 5);
+  const uniq = a => [...new Set(a)];
+  const EPS = 'ε';
+
+  function blank(type = 'mealy') {
+    return { v: 1, type, name: type === 'mealy' ? 'Neuer Mealy-Automat' : 'Neuer Moore-Automat',
+      states: [], start: null, trans: [], sigmaDecl: [], omegaDecl: [], bends: {}, tests: [], task: null };
+  }
+  function normalize(m) {
+    const b = blank(m && m.type === 'moore' ? 'moore' : 'mealy');
+    const r = Object.assign(b, m || {});
+    r.states = (r.states || []).map(s => ({ id: String(s.id), name: String(s.name), x: +s.x || 0, y: +s.y || 0, out: s.out == null ? '' : String(s.out) }));
+    r.trans = (r.trans || []).map(t => ({ id: String(t.id || uid('t')), from: String(t.from), to: String(t.to), inp: String(t.inp ?? ''), out: String(t.out ?? '') }))
+      .filter(t => r.states.some(s => s.id === t.from) && r.states.some(s => s.id === t.to));
+    r.sigmaDecl = uniq((r.sigmaDecl || []).map(String));
+    r.omegaDecl = uniq((r.omegaDecl || []).map(String));
+    r.bends = r.bends || {};
+    r.tests = (r.tests || []).map(t => ({ w: String(t.w || ''), exp: String(t.exp || '') }));
+    if (r.start && !r.states.some(s => s.id === r.start)) r.start = r.states[0]?.id || null;
+    return r;
+  }
+  const st = (m, id) => m.states.find(s => s.id === id);
+  const sname = (m, id) => st(m, id)?.name ?? '?';
+  const sigma = m => uniq([...m.sigmaDecl, ...m.trans.map(t => t.inp).filter(Boolean)]);
+  const omega = m => uniq([...m.omegaDecl, ...(m.type === 'mealy' ? m.trans.map(t => t.out) : m.states.map(s => s.out)).filter(Boolean)]);
+  const trOf = (m, sid, a) => m.trans.filter(t => t.from === sid && t.inp === a);
+  const isSingle = list => list.length > 0 && list.every(s => [...s].length === 1);
+
+  function freeName(m, prefix = 'q') {
+    for (let i = 0; ; i++) if (!m.states.some(s => s.name === prefix + i)) return prefix + i;
+  }
+
+  // Wort in Zeichen zerlegen: mit Trennzeichen splitten, sonst längste Übereinstimmung mit dem Alphabet
+  function tokenize(alpha, word) {
+    word = String(word || '').trim();
+    if (!word) return [];
+    if (/[\s,;]/.test(word) && !isSingle(alpha)) return word.split(/[\s,;]+/).filter(Boolean);
+    if (/[\s,;]/.test(word)) word = word.replace(/[\s,;]+/g, '');
+    const syms = [...alpha].sort((a, b) => b.length - a.length);
+    const out = []; let i = 0;
+    while (i < word.length) {
+      const hit = syms.find(s => s && word.startsWith(s, i));
+      if (hit) { out.push(hit); i += hit.length; }
+      else { const ch = [...word.slice(i)][0]; out.push(ch); i += ch.length; }
+    }
+    return out;
+  }
+
+  function run(m, tokens) {
+    const res = { steps: [], stop: null, startOut: null };
+    let cur = m.start;
+    if (!cur || !st(m, cur)) { res.stop = { at: 0, reason: 'nostart' }; return res; }
+    if (m.type === 'moore') res.startOut = st(m, cur).out;
+    const S = new Set(sigma(m));
+    for (let i = 0; i < tokens.length; i++) {
+      const a = tokens[i];
+      if (!S.has(a)) { res.stop = { at: i, reason: 'symbol', sym: a, state: cur }; break; }
+      const t = trOf(m, cur, a)[0];
+      if (!t) { res.stop = { at: i, reason: 'missing', sym: a, state: cur }; break; }
+      const out = m.type === 'mealy' ? t.out : st(m, t.to).out;
+      res.steps.push({ from: cur, to: t.to, inp: a, out, tid: t.id });
+      cur = t.to;
+    }
+    return res;
+  }
+  const outputs = (m, res) => m.type === 'moore' ? (res.startOut == null ? [] : [res.startOut, ...res.steps.map(s => s.out)]) : res.steps.map(s => s.out);
+  const joinSyms = (alpha, arr) => arr.join(isSingle(alpha) ? '' : ' ');
+
+  function reachable(m) {
+    const seen = new Set(); if (!m.start) return seen;
+    const q = [m.start]; seen.add(m.start);
+    while (q.length) { const c = q.shift(); for (const t of m.trans) if (t.from === c && !seen.has(t.to)) { seen.add(t.to); q.push(t.to); } }
+    return seen;
+  }
+
+  function validate(m) {
+    const issues = []; const S = sigma(m); const missing = [];
+    const add = (level, code, text, extra = {}) => issues.push({ level, code, text, ...extra });
+    if (!m.states.length) add('info', 'empty', 'Noch keine Zustände. Doppelklick auf die Fläche legt einen an.');
+    if (m.states.length && !m.start) add('error', 'nostart', 'Kein Startzustand festgelegt.');
+    const names = m.states.map(s => s.name);
+    uniq(names.filter((n, i) => names.indexOf(n) !== i)).forEach(n => add('error', 'dupname', `Der Name „${n}“ kommt mehrfach vor.`));
+    if (m.states.length && !S.length) add('info', 'nosigma', 'Das Eingabealphabet Σ ist leer.');
+    let dupCount = 0;
+    for (const s of m.states) for (const a of S) {
+      const ts = trOf(m, s.id, a);
+      if (ts.length > 1) { dupCount++; add('error', 'nondet', `δ(${s.name}, ${a}) ist ${ts.length}-mal belegt. Pro Zustand und Zeichen darf es nur eine Kante geben.`, { sid: s.id, sym: a }); }
+      if (!ts.length) missing.push({ sid: s.id, sym: a });
+    }
+    if (missing.length) add('warn', 'missing', `${missing.length} ${missing.length === 1 ? 'Kante fehlt' : 'Kanten fehlen'}: ` +
+      missing.slice(0, 6).map(x => `δ(${sname(m, x.sid)}, ${x.sym})`).join(', ') + (missing.length > 6 ? ' …' : ''), { fix: 'loops' });
+    if (m.type === 'mealy') {
+      const noOut = m.trans.filter(t => !t.out);
+      if (noOut.length) add('error', 'noout', `${noOut.length} ${noOut.length === 1 ? 'Kante hat' : 'Kanten haben'} keine Ausgabe.`);
+    } else {
+      const noOut = m.states.filter(s => !s.out);
+      if (noOut.length) add('error', 'noout', `Ohne Ausgabe: ${noOut.map(s => s.name).join(', ')}. Bei Moore braucht jeder Zustand eine.`);
+    }
+    const noInp = m.trans.filter(t => !t.inp);
+    if (noInp.length) add('error', 'noinp', `${noInp.length} ${noInp.length === 1 ? 'Kante hat' : 'Kanten haben'} kein Eingabezeichen.`);
+    const R = reachable(m);
+    const unreach = m.states.filter(s => !R.has(s.id));
+    if (m.start && unreach.length) add('info', 'unreach', `Nicht erreichbar vom Start: ${unreach.map(s => s.name).join(', ')}.`, { fix: 'unreach' });
+    const usedOut = new Set((m.type === 'mealy' ? m.trans.map(t => t.out) : m.states.map(s => s.out)));
+    const unusedO = omega(m).filter(o => !usedOut.has(o));
+    if (unusedO.length) add('info', 'unusedOmega', `In Ω, aber nie ausgegeben: ${unusedO.join(', ')}.`);
+    const needed = m.states.length * S.length;
+    const have = m.trans.length;
+    const det = !dupCount && !noInp.length;
+    const complete = needed > 0 && !missing.length;
+    if (det && complete && !issues.some(i => i.level === 'error')) add('ok', 'ok', `Vollständig und deterministisch: ${needed} von ${needed} Kanten.`);
+    return { issues, missing, needed, have, det, complete, unreach };
+  }
+
+  // ---------- Text-Kurzschreibweise ----------
+  const NAME = /^[^\s,\/:>{}()#]+$/;
+  function toText(m) {
+    const L = [];
+    L.push(`# ${m.name || 'Automat'}`);
+    L.push(`typ ${m.type}`);
+    L.push(`eingabe: ${sigma(m).join(' ')}`);
+    L.push(`ausgabe: ${omega(m).join(' ')}`);
+    if (m.start) L.push(`start ${sname(m, m.start)}`);
+    for (const s of m.states) L.push(m.type === 'moore' ? `zustand ${s.name} / ${s.out}` : `zustand ${s.name}`);
+    const groups = new Map();
+    for (const t of m.trans) { const k = t.from + '>' + t.to; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(t); }
+    for (const ts of groups.values()) {
+      const lab = ts.map(t => m.type === 'mealy' ? `${t.inp}/${t.out}` : t.inp).join(', ');
+      L.push(`${sname(m, ts[0].from)} -> ${sname(m, ts[0].to)} : ${lab}`);
+    }
+    return L.join('\n') + '\n';
+  }
+
+  function parseText(text, prev) {
+    const errors = []; const lines = String(text).split(/\r?\n/);
+    let type = prev?.type || 'mealy';
+    for (const raw of lines) { const mm = raw.trim().match(/^(typ|type)\s+(mealy|moore)\s*$/i); if (mm) type = mm[2].toLowerCase(); }
+    const m = blank(type); m.name = prev?.name || m.name;
+    m.tests = prev?.tests ? JSON.parse(JSON.stringify(prev.tests)) : []; m.task = prev?.task || null;
+    const byName = new Map();
+    const ensure = (name, ln) => {
+      if (!NAME.test(name)) { errors.push({ line: ln, msg: `„${name}“ ist kein gültiger Zustandsname.` }); return null; }
+      if (byName.has(name)) return byName.get(name);
+      const old = prev?.states.find(s => s.name === name);
+      const s = { id: old?.id || uid('s'), name, x: old ? old.x : NaN, y: old ? old.y : NaN, out: old?.out || '' };
+      if (m.type === 'mealy') s.out = '';
+      m.states.push(s); byName.set(name, s); return s;
+    };
+    let startName = null; let firstComment = true;
+    lines.forEach((raw, i) => {
+      const ln = i + 1; let line = raw.trim();
+      if (!line) return;
+      if (line.startsWith('#')) { if (firstComment && line.slice(1).trim()) { m.name = line.slice(1).trim(); } firstComment = false; return; }
+      firstComment = false;
+      let r;
+      if ((r = line.match(/^(typ|type)\s+(mealy|moore)$/i))) return;
+      if ((r = line.match(/^name\s*[:=]\s*(.+)$/i))) { m.name = r[1].trim(); return; }
+      if ((r = line.match(/^start\s*[:=]?\s*(\S+)$/i))) { startName = r[1]; ensure(r[1], ln); return; }
+      if ((r = line.match(/^(eingabe|sigma|Σ)\s*[:=]\s*(.*)$/i))) { m.sigmaDecl = uniq(r[2].split(/[\s,{}]+/).filter(Boolean)); return; }
+      if ((r = line.match(/^(ausgabe|omega|Ω)\s*[:=]\s*(.*)$/i))) { m.omegaDecl = uniq(r[2].split(/[\s,{}]+/).filter(Boolean)); return; }
+      if ((r = line.match(/^(zustand|state)\s+([^\s\/]+)(?:\s*\/\s*(\S+))?$/i))) {
+        const s = ensure(r[2], ln); if (!s) return;
+        if (r[3] != null) { if (type === 'mealy') errors.push({ line: ln, msg: 'Bei Mealy steht die Ausgabe an der Kante, nicht im Zustand.' }); else s.out = r[3]; }
+        return;
+      }
+      if ((r = line.match(/^(\S+?)\s*-+>\s*([^\s:]+)\s*:\s*(.+)$/))) {
+        const a = ensure(r[1], ln), b = ensure(r[2], ln); if (!a || !b) return;
+        for (const part of r[3].split(',').map(x => x.trim()).filter(Boolean)) {
+          if (type === 'mealy') {
+            const pp = part.split('/').map(x => x.trim());
+            if (pp.length !== 2 || !pp[0] || !pp[1]) { errors.push({ line: ln, msg: `„${part}“: Mealy-Kanten schreibt man als Eingabe/Ausgabe, z. B. 1/n.` }); continue; }
+            m.trans.push({ id: uid('t'), from: a.id, to: b.id, inp: pp[0], out: pp[1] });
+          } else {
+            if (part.includes('/')) { errors.push({ line: ln, msg: `„${part}“: Moore-Kanten tragen nur das Eingabezeichen.` }); continue; }
+            m.trans.push({ id: uid('t'), from: a.id, to: b.id, inp: part, out: '' });
+          }
+        }
+        return;
+      }
+      errors.push({ line: ln, msg: 'Zeile nicht verstanden.' });
+    });
+    if (startName && byName.has(startName)) m.start = byName.get(startName).id;
+    else if (m.states.length) m.start = m.states[0].id;
+    if (prev) for (const [k, v] of Object.entries(prev.bends || {})) m.bends[k] = v;
+    return { model: m, errors };
+  }
+
+  // ---------- Umwandlungen ----------
+  function mealyToMoore(m) {
+    const S = sigma(m); const n = blank('moore'); n.name = (m.name || 'Automat') + ' (Moore)';
+    n.sigmaDecl = [...S];
+    const map = new Map(); const mapping = []; const q = [];
+    const get = (sid, y) => {
+      const k = sid + '\u0000' + y; if (map.has(k)) return map.get(k);
+      const s = { id: uid('s'), name: 'p' + map.size, x: NaN, y: NaN, out: y };
+      map.set(k, s); n.states.push(s); mapping.push({ name: s.name, from: sname(m, sid), out: y }); q.push([sid, y, s]); return s;
+    };
+    if (!m.start) return { model: n, mapping };
+    n.start = get(m.start, EPS).id;
+    while (q.length) {
+      const [sid, , s] = q.shift();
+      for (const a of S) { const t = trOf(m, sid, a)[0]; if (!t) continue; const tgt = get(t.to, t.out); n.trans.push({ id: uid('t'), from: s.id, to: tgt.id, inp: a, out: '' }); }
+    }
+    n.omegaDecl = uniq(n.states.map(s => s.out));
+    n.tests = (m.tests || []).map(t => ({ w: t.w, exp: '' }));
+    return { model: n, mapping };
+  }
+  function mooreToMealy(m) {
+    const n = blank('mealy'); n.name = (m.name || 'Automat').replace(/ \(Moore\)$/, '') + (/(Moore)/.test(m.name) ? '' : ' (Mealy)');
+    n.sigmaDecl = [...sigma(m)];
+    n.states = m.states.map(s => ({ ...s, out: '' }));
+    n.start = m.start;
+    n.trans = m.trans.map(t => ({ ...t, id: uid('t'), out: st(m, t.to)?.out || '' }));
+    n.omegaDecl = omega(m).filter(o => o !== EPS);
+    n.bends = { ...m.bends };
+    n.tests = (m.tests || []).map(t => ({ w: t.w, exp: '' }));
+    return { model: n };
+  }
+
+  function minimize(m) {
+    const S = sigma(m); const R = reachable(m);
+    if (!m.start) return { ok: false, reason: 'Es gibt keinen Startzustand.' };
+    const Q = m.states.filter(s => R.has(s.id));
+    const tr = (sid, a) => trOf(m, sid, a);
+    for (const s of Q) for (const a of S) if (tr(s.id, a).length !== 1)
+      return { ok: false, reason: `Minimieren geht nur bei vollständigen, deterministischen Automaten. Problem bei δ(${s.name}, ${a}).` };
+    let cls = new Map(); const rounds = [];
+    const assign = keyf => { const keys = new Map(); const c = new Map(); for (const s of Q) { const k = keyf(s); if (!keys.has(k)) keys.set(k, keys.size); c.set(s.id, keys.get(k)); } return c; };
+    const groups = c => { const g = []; for (const s of Q) { const i = c.get(s.id); (g[i] = g[i] || []).push(s.name); } return g; };
+    cls = assign(s => m.type === 'moore' ? 'o:' + s.out : S.map(a => tr(s.id, a)[0].out).join('\u0001'));
+    rounds.push(groups(cls));
+    for (let guard = 0; guard < 200; guard++) {
+      const prevCount = new Set(cls.values()).size;
+      const next = assign(s => cls.get(s.id) + '|' + S.map(a => cls.get(tr(s.id, a)[0].to)).join(','));
+      const cnt = new Set(next.values()).size;
+      cls = next;
+      if (cnt === prevCount) break;
+      rounds.push(groups(cls));
+    }
+    // neu aufbauen, Startklasse zuerst
+    const order = []; const startC = cls.get(m.start); order.push(startC);
+    for (const s of Q) { const c = cls.get(s.id); if (!order.includes(c)) order.push(c); }
+    const n = blank(m.type); n.name = m.name; n.sigmaDecl = [...S]; n.omegaDecl = [...m.omegaDecl]; n.tests = JSON.parse(JSON.stringify(m.tests || [])); n.task = m.task;
+    const rep = new Map(); const classes = [];
+    for (const c of order) {
+      const mem = Q.filter(s => cls.get(s.id) === c);
+      const r = mem[0];
+      const ns = { id: r.id, name: r.name, x: mem.reduce((a, s) => a + s.x, 0) / mem.length, y: mem.reduce((a, s) => a + s.y, 0) / mem.length, out: r.out };
+      rep.set(c, ns); n.states.push(ns); classes.push({ name: r.name, members: mem.map(s => s.name) });
+    }
+    n.start = rep.get(startC).id;
+    for (const c of order) {
+      const r = Q.find(s => cls.get(s.id) === c);
+      for (const a of S) { const t = tr(r.id, a)[0]; n.trans.push({ id: uid('t'), from: rep.get(c).id, to: rep.get(cls.get(t.to)).id, inp: a, out: m.type === 'mealy' ? t.out : '' }); }
+    }
+    return { ok: true, rounds, classes, model: n, before: m.states.length, after: n.states.length, removedUnreach: m.states.length - Q.length };
+  }
+
+  // ---------- Anordnung ----------
+  function layoutForce(m, opts = {}) {
+    const N = m.states.length; if (!N) return;
+    const k = opts.k || 170; const idx = new Map(m.states.map((s, i) => [s.id, i]));
+    const P = m.states.map((s, i) => ({ x: Math.cos(2 * Math.PI * i / N - Math.PI) * (60 + 40 * N), y: Math.sin(2 * Math.PI * i / N - Math.PI) * (60 + 40 * N) * 0.7 }));
+    const E = m.trans.filter(t => t.from !== t.to).map(t => [idx.get(t.from), idx.get(t.to)]);
+    let temp = 80;
+    for (let it = 0; it < 400; it++) {
+      const D = P.map(() => ({ x: 0, y: 0 }));
+      for (let i = 0; i < N; i++) for (let j = i + 1; j < N; j++) {
+        let dx = P[i].x - P[j].x, dy = P[i].y - P[j].y; let d = Math.hypot(dx, dy) || 0.01;
+        const f = k * k / d; dx /= d; dy /= d; D[i].x += dx * f; D[i].y += dy * f; D[j].x -= dx * f; D[j].y -= dy * f;
+      }
+      for (const [a, b] of E) {
+        let dx = P[a].x - P[b].x, dy = P[a].y - P[b].y; const d = Math.hypot(dx, dy) || 0.01;
+        const f = d * d / k; dx /= d; dy /= d; D[a].x -= dx * f; D[a].y -= dy * f; D[b].x += dx * f; D[b].y += dy * f;
+      }
+      for (let i = 0; i < N; i++) { D[i].x -= P[i].x * 0.02; D[i].y -= P[i].y * 0.02; const d = Math.hypot(D[i].x, D[i].y) || 1; P[i].x += D[i].x / d * Math.min(d, temp); P[i].y += D[i].y / d * Math.min(d, temp) * 0.8; }
+      temp = Math.max(2, temp * 0.985);
+    }
+    // Start links
+    const si = idx.get(m.start);
+    if (si != null) { const minx = Math.min(...P.map(p => p.x)); if (P[si].x - minx > 40) P.forEach(p => { p.x = -p.x; }); }
+    m.states.forEach((s, i) => { s.x = Math.round(P[i].x); s.y = Math.round(P[i].y); });
+    m.bends = {};
+  }
+  function layoutCircle(m) {
+    const N = m.states.length; const r = Math.max(110, N * 48);
+    const order = [...m.states].sort((a, b) => (a.id === m.start ? -1 : b.id === m.start ? 1 : 0));
+    order.forEach((s, i) => { const a = Math.PI + 2 * Math.PI * i / N; s.x = Math.round(Math.cos(a) * r); s.y = Math.round(Math.sin(a) * r * 0.75); });
+    m.bends = {};
+  }
+  function placeMissing(m) {
+    const bad = m.states.filter(s => !isFinite(s.x) || !isFinite(s.y));
+    if (!bad.length) return;
+    if (bad.length === m.states.length) { layoutForce(m); return; }
+    const maxx = Math.max(...m.states.filter(s => isFinite(s.x)).map(s => s.x));
+    bad.forEach((s, i) => { s.x = maxx + 160; s.y = i * 120 - (bad.length - 1) * 60; });
+  }
+
+  // ---------- TikZ ----------
+  function texEsc(s) { return String(s).replace(/[\\{}$&#%_^~]/g, c => ({ '\\': '\\textbackslash{}', '~': '\\textasciitilde{}', '^': '\\textasciicircum{}' }[c] || '\\' + c)).replace(/ε/g, '\\varepsilon'); }
+  function texName(n) { const r = n.match(/^(.*?)(\d+)$/); return r && r[1] ? `${texEsc(r[1])}_{${r[2]}}` : texEsc(n); }
+  function toTikz(m) {
+    const sc = 0.028; const L = [];
+    const id = s => 'n' + m.states.indexOf(s);
+    L.push('% benötigt: \\usepackage{tikz} \\usetikzlibrary{automata,positioning,arrows.meta}');
+    L.push('% Farben wie in der Übersicht: Eingabe blau, Ausgabe orange');
+    L.push('\\definecolor{eing}{HTML}{2C5A8C}\\definecolor{ausg}{HTML}{C4461C}');
+    L.push('\\begin{tikzpicture}[>={Stealth[length=7pt]}, every state/.style={draw, thick, minimum size=11mm}, every edge/.style={draw, ->, thick}, auto]');
+    for (const s of m.states) {
+      const lab = m.type === 'moore' ? `$${texName(s.name)}\\,/\\,\\textcolor{ausg}{\\mathsf{${texEsc(s.out)}}}$` : `$${texName(s.name)}$`;
+      L.push(`  \\node[state${s.id === m.start ? ', initial, initial text={}' : ''}] (${id(s)}) at (${(s.x * sc).toFixed(2)}, ${(-s.y * sc).toFixed(2)}) {${lab}};`);
+    }
+    const groups = new Map();
+    for (const t of m.trans) { const k = t.from + '>' + t.to; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(t); }
+    L.push('  \\path');
+    for (const [k, ts] of groups) {
+      const a = st(m, ts[0].from), b = st(m, ts[0].to);
+      const lab = ts.map(t => m.type === 'mealy' ? `$\\textcolor{eing}{\\mathsf{${texEsc(t.inp)}}}\\,/\\,\\textcolor{ausg}{\\mathsf{${texEsc(t.out)}}}$` : `$\\textcolor{eing}{\\mathsf{${texEsc(t.inp)}}}$`).join(' \\\\ ');
+      let opt;
+      if (a === b) {
+        const ang = m.bends['loop:' + a.id] ?? -Math.PI / 2;
+        const deg = ((-ang * 180 / Math.PI) % 360 + 360) % 360;
+        opt = deg > 45 && deg <= 135 ? 'loop above' : deg > 135 && deg <= 225 ? 'loop left' : deg > 225 && deg <= 315 ? 'loop below' : 'loop right';
+      } else {
+        const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+        const rev = groups.has(ts[0].to + '>' + ts[0].from);
+        const bend = m.bends[k] ?? (rev ? 28 : 0);
+        const deg = Math.round(Math.atan(2 * bend / len) * 180 / Math.PI * 1.2);
+        opt = deg === 0 ? '' : deg > 0 ? `bend right=${deg}` : `bend left=${-deg}`;
+      }
+      L.push(`    (${id(a)}) edge[${opt}] node[align=center] {${lab}} (${id(b)})`);
+    }
+    L.push('  ;');
+    L.push('\\end{tikzpicture}');
+    return L.join('\n');
+  }
+
+  return { uid, uniq, EPS, blank, normalize, st, sname, sigma, omega, trOf, isSingle, freeName, tokenize, run, outputs, joinSyms,
+    reachable, validate, toText, parseText, mealyToMoore, mooreToMealy, minimize, layoutForce, layoutCircle, placeMissing, toTikz, texName };
+})();
+
+
+// ===== Beispiele und Aufgaben =====
+const EXAMPLES = [
+  { id: 'fahrkarte', title: 'Fahrkartenautomat', type: 'mealy', note: 'Ticket 2 €, Münzen 1 € und 2 €. Aus der Übersicht.', word: '11212',
+    text: `# Fahrkartenautomat
+typ mealy
+eingabe: 1 2
+ausgabe: n t w
+start q0
+zustand q0
+zustand q1
+q0 -> q1 : 1/n
+q0 -> q0 : 2/t
+q1 -> q0 : 1/t, 2/w`, pos: { q0: [-150, 0], q1: [150, 0] }, bends: { 'q0>q1': -40, 'q1>q0': -40, 'loop:q0': Math.PI / 2 },
+    tests: [{ w: '11212', exp: 'nttnw' }, { w: '2', exp: 't' }, { w: '12', exp: 'nw' }] },
+  { id: 'flanke', title: 'Flankenerkennung', type: 'mealy', note: 'Gibt 1 aus, sobald sich das Eingabebit gegenüber dem vorigen ändert.', word: '0011101',
+    text: `# Flankenerkennung
+typ mealy
+eingabe: 0 1
+ausgabe: 0 1
+start s
+zustand s
+zustand a0
+zustand a1
+s -> a0 : 0/0
+s -> a1 : 1/0
+a0 -> a0 : 0/0
+a0 -> a1 : 1/1
+a1 -> a0 : 0/1
+a1 -> a1 : 1/0`, pos: { s: [-200, 0], a0: [60, -110], a1: [60, 110] }, bends: { 'loop:a0': -Math.PI / 2 } },
+  { id: 'addierer', title: 'Serieller Addierer', type: 'mealy', note: 'Liest Bitpaare (niedrigstes Bit zuerst) und gibt die Summenbits aus. Der Zustand ist der Übertrag.', word: '11 01 10 00',
+    text: `# Serieller Addierer
+typ mealy
+eingabe: 00 01 10 11
+ausgabe: 0 1
+start c0
+zustand c0
+zustand c1
+c0 -> c0 : 00/0, 01/1, 10/1
+c0 -> c1 : 11/0
+c1 -> c1 : 01/0, 10/0, 11/1
+c1 -> c0 : 00/1`, pos: { c0: [-150, 0], c1: [150, 0] }, bends: { 'loop:c0': Math.PI, 'loop:c1': 0 } },
+  { id: 'caesar', title: 'Verschiebung um eins', type: 'mealy', note: 'Ein Zustand reicht: a wird zu b, b zu c, c zu a.', word: 'abcab',
+    text: `# Verschiebung um eins
+typ mealy
+eingabe: a b c
+ausgabe: a b c
+start q0
+zustand q0
+q0 -> q0 : a/b, b/c, c/a`, pos: { q0: [0, 40] } },
+  { id: 'redundant', title: 'Parität, unnötig groß', type: 'mealy', note: 'Gibt nach jedem Bit die Parität der bisher gelesenen Einsen aus. Vier Zustände, minimal wären zwei. Probier „Minimieren“.', word: '1101',
+    text: `# Parität, unnötig groß
+typ mealy
+eingabe: 0 1
+ausgabe: 0 1
+start A
+zustand A
+zustand B
+zustand C
+zustand D
+A -> C : 0/0
+A -> B : 1/1
+B -> D : 0/1
+B -> C : 1/0
+C -> A : 0/0
+C -> D : 1/1
+D -> B : 0/1
+D -> A : 1/0`, pos: { A: [-170, -100], B: [170, -100], C: [-170, 110], D: [170, 110] } },
+  { id: 'paritaet', title: 'Paritätsbit (Moore)', type: 'moore', note: 'Der Zustand zeigt, ob bisher eine gerade (0) oder ungerade (1) Anzahl Einsen kam.', word: '10110',
+    text: `# Paritätsbit
+typ moore
+eingabe: 0 1
+ausgabe: 0 1
+start g
+zustand g / 0
+zustand u / 1
+g -> g : 0
+g -> u : 1
+u -> u : 0
+u -> g : 1`, pos: { g: [-140, 0], u: [140, 0] }, bends: { 'loop:g': Math.PI, 'loop:u': 0 } },
+  { id: 'ampel', title: 'Ampel (Moore)', type: 'moore', note: 'Jeder Takt t schaltet die Ampel eine Phase weiter.', word: 'tttt',
+    text: `# Ampel
+typ moore
+eingabe: t
+ausgabe: rot rotgelb grün gelb
+start R
+zustand R / rot
+zustand RG / rotgelb
+zustand G / grün
+zustand Y / gelb
+R -> RG : t
+RG -> G : t
+G -> Y : t
+Y -> R : t`, pos: { R: [-140, -110], RG: [140, -110], G: [140, 110], Y: [-140, 110] } },
+];
+
+const TASKS = [
+  { id: 'echo', title: 'Verzögerung um ein Bit', type: 'mealy', sigma: ['0', '1'], omega: ['0', '1'],
+    text: 'Baue einen Mealy-Automaten, der jedes Bit einen Schritt später wieder ausgibt. Beim ersten Bit gibt er 0 aus. Aus 1101 wird also 0110.',
+    ref: `typ mealy
+start p0
+p0 -> p0 : 0/0
+p0 -> p1 : 1/0
+p1 -> p0 : 0/1
+p1 -> p1 : 1/1`, words: ['1101', '0', '1', '111', '1010', '0011', '10011'] },
+  { id: 'doppel1', title: 'Zwei Einsen hintereinander', type: 'mealy', sigma: ['0', '1'], omega: ['0', '1'],
+    text: 'Gib eine 1 aus, wenn das aktuelle und das vorherige Bit beide 1 sind, sonst 0. Aus 01110 wird 00110.',
+    ref: `typ mealy
+start z0
+z0 -> z0 : 0/0
+z0 -> z1 : 1/0
+z1 -> z0 : 0/0
+z1 -> z1 : 1/1`, words: ['01110', '1', '11', '111', '1011', '0101', '110011'] },
+  { id: 'cola', title: 'Getränkeautomat 3 €', type: 'mealy', sigma: ['1', '2'], omega: ['n', 'c', 'r'],
+    text: 'Eine Cola kostet 3 €, der Automat nimmt 1 €- und 2 €-Münzen. Ausgaben: n = nichts, c = Cola, r = Cola und 1 € zurück. Nach jeder Cola ist das Guthaben wieder 0.',
+    ref: `typ mealy
+start g0
+g0 -> g1 : 1/n
+g0 -> g2 : 2/n
+g1 -> g2 : 1/n
+g1 -> g0 : 2/c
+g2 -> g0 : 1/c, 2/r`, words: ['111', '12', '21', '22', '2222', '1212', '11111'] },
+  { id: 'teilbar3', title: 'Durch 3 teilbar?', type: 'mealy', sigma: ['0', '1'], omega: ['j', 'n'],
+    text: 'Die Eingabe ist eine Binärzahl, höchstes Bit zuerst. Gib nach jedem Bit j aus, wenn die bisher gelesene Zahl durch 3 teilbar ist, sonst n. Tipp: Merk dir den Rest.',
+    ref: `typ mealy
+start r0
+r0 -> r0 : 0/j
+r0 -> r1 : 1/n
+r1 -> r2 : 0/n
+r1 -> r0 : 1/j
+r2 -> r1 : 0/n
+r2 -> r2 : 1/n`, words: ['11', '110', '1001', '1111', '10010', '101', '0'] },
+  { id: 'zaehler', title: 'Zähler modulo 3 (Moore)', type: 'moore', sigma: ['t', 'r'], omega: ['0', '1', '2'],
+    text: 'Moore-Automat: Jeder Takt t zählt eins weiter (0, 1, 2, 0, …), r setzt auf 0 zurück. Der Startzustand gibt schon 0 aus, das Ausgabewort ist also ein Zeichen länger als die Eingabe.',
+    ref: `typ moore
+start z0
+zustand z0 / 0
+zustand z1 / 1
+zustand z2 / 2
+z0 -> z1 : t
+z1 -> z2 : t
+z2 -> z0 : t
+z0 -> z0 : r
+z1 -> z0 : r
+z2 -> z0 : r`, words: ['ttt', 'r', 'ttrt', 'tttt', 'trtt', 'ttttt'] },
+];
+
+
+// ===== Transduktor: Oberfläche =====
+{
+const C = Core;
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// ---------- Icons ----------
+const I = (d, extra = '') => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ${extra}>${d}</svg>`;
+const ICON = {
+  select: I('<path d="M5 3l14 8-6 1.6L10 19z"/>'),
+  state: I('<circle cx="11" cy="12" r="6.5"/><path d="M19 4v5M16.5 6.5h5"/>'),
+  edge: I('<circle cx="5" cy="17" r="2.6"/><circle cx="19" cy="7" r="2.6"/><path d="M7.4 15.4C10 9 13 8 16.4 7.6"/><path d="M13.8 5.9l2.6 1.7-1.6 2.6"/>'),
+  del: I('<path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13"/>'),
+  layout: I('<circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="8" r="2.5"/><circle cx="10" cy="18" r="2.5"/><path d="M8.3 7l7.3.7M16.6 10.1l-5 6M7 8.3l2.3 7.3"/>'),
+  undo: I('<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 010 12h-3"/>'),
+  redo: I('<path d="M15 14l5-5-5-5"/><path d="M20 9H10a6 6 0 000 12h3"/>'),
+  share: I('<path d="M10 14a4.5 4.5 0 006.4 0l3-3a4.5 4.5 0 00-6.4-6.4l-1 1"/><path d="M14 10a4.5 4.5 0 00-6.4 0l-3 3a4.5 4.5 0 006.4 6.4l1-1"/>'),
+  menu: I('<path d="M4 7h16M4 12h16M4 17h16"/>'),
+  panel: I('<rect x="3.5" y="4" width="17" height="16" rx="2.5"/><path d="M14 4v16"/>'),
+  plus: I('<path d="M12 5v14M5 12h14"/>'), minus: I('<path d="M5 12h14"/>'),
+  fit: I('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>'),
+  play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12-7.5z" fill="currentColor"/></svg>',
+  pause: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 4.5h4v15h-4zM13.5 4.5h4v15h-4z" fill="currentColor"/></svg>',
+  step: I('<path d="M6 5l9 7-9 7z" fill="currentColor"/><path d="M18 5v14"/>'),
+  back: I('<path d="M18 5l-9 7 9 7z" fill="currentColor"/><path d="M6 5v14"/>'),
+  reset: I('<path d="M4 12a8 8 0 108-8 8.2 8.2 0 00-6 2.7"/><path d="M4 4v4h4"/>'),
+  end: I('<path d="M4 5l7 7-7 7zM12 5l7 7-7 7z" fill="currentColor"/>'),
+};
+
+// ---------- Zustand ----------
+let model = C.blank('mealy');
+let undoS = [], redoS = [], lastKey = null, lastT = 0;
+let sel = null;             // {kind:'state',id} | {kind:'edge',key}
+let tool = 'select';
+let view = { tx: 0, ty: 0, k: 1 };
+let tab = 'tupel';
+let pendingFrom = null;     // Kanten-Werkzeug per Tippen
+let conv = null;            // letzte Umwandlung (Zuordnung)
+let minPrev = null;         // Vorschau Minimierung
+let textErrors = [], textDirty = false, panelDirty = false;
+const sim = { word: '', tokens: [], res: null, i: 0, playing: false, run: 0, speed: 1, fresh: -1 };
+const SPEEDS = [0.25, 0.5, 1, 2, 4];
+
+// ---------- Speichern & Verlauf ----------
+const LS = 'transduktor.v1';
+function persist() {
+  try { localStorage.setItem(LS, JSON.stringify({ model, word: sim.word, tab })); } catch (e) {}
+}
+function change(fn, key) {
+  const before = JSON.stringify(model);
+  fn(model);
+  const after = JSON.stringify(model);
+  if (before === after) return false;
+  const now = Date.now();
+  if (!(key && key === lastKey && now - lastT < 1500)) { undoS.push(before); if (undoS.length > 150) undoS.shift(); }
+  lastKey = key || null; lastT = now; redoS = [];
+  afterChange(); return true;
+}
+function pushBefore(before) { undoS.push(before); redoS = []; lastKey = null; afterChange(); }
+function setModel(m, { history = true, fit = false } = {}) {
+  if (history) { undoS.push(JSON.stringify(model)); redoS = []; lastKey = null; }
+  model = C.normalize(m); sel = null; pendingFrom = null; minPrev = null;
+  afterChange(); if (fit) requestAnimationFrame(fitView);
+}
+function undo() { if (!undoS.length) return; redoS.push(JSON.stringify(model)); model = C.normalize(JSON.parse(undoS.pop())); lastKey = null; sel = null; afterChange(); toast('Rückgängig gemacht'); }
+function redo() { if (!redoS.length) return; undoS.push(JSON.stringify(model)); model = C.normalize(JSON.parse(redoS.pop())); lastKey = null; sel = null; afterChange(); }
+function afterChange() {
+  if (sel?.kind === 'state' && !C.st(model, sel.id)) sel = null;
+  if (sel?.kind === 'edge' && !model.trans.some(t => t.from + '>' + t.to === sel.key)) sel = null;
+  minPrev = null; textDirty = true;
+  stopPlay(); recompute(); renderAll(); persist();
+}
+
+// ---------- Geometrie ----------
+const rad = () => model.type === 'moore' ? 31 : 26;
+const LH = 19;
+function groups(m = model) {
+  const g = new Map();
+  for (const t of m.trans) { const k = t.from + '>' + t.to; if (!g.has(k)) g.set(k, { key: k, from: t.from, to: t.to, ts: [] }); g.get(k).ts.push(t); }
+  return g;
+}
+const tw = s => [...String(s)].reduce((a, c) => a + (/[mwMW]/.test(c) ? 12.5 : /[il1.,:;']/.test(c) ? 5 : 8.6), 0);
+function labelText(m, t) { return m.type === 'mealy' ? `${t.inp || '?'} / ${t.out || '?'}` : (t.inp || '?'); }
+function labelSize(m, g) { return { w: Math.max(18, ...g.ts.map(t => tw(labelText(m, t)))) + 12, h: g.ts.length * LH + 4 }; }
+function autoLoop(m, s) {
+  let vx = 0, vy = 0;
+  for (const t of m.trans) {
+    const o = t.from === s.id && t.to !== s.id ? C.st(m, t.to) : t.to === s.id && t.from !== s.id ? C.st(m, t.from) : null;
+    if (o) { const d = Math.hypot(o.x - s.x, o.y - s.y) || 1; vx += (o.x - s.x) / d; vy += (o.y - s.y) / d; }
+  }
+  if (s.id === m.start) vx -= 0.9;
+  if (Math.hypot(vx, vy) < 0.3) return -Math.PI / 2;
+  const a = Math.atan2(-vy, -vx);
+  return Math.round(a / (Math.PI / 4)) * (Math.PI / 4);
+}
+function edgeGeom(m, g, G) {
+  const a = C.st(m, g.from), b = C.st(m, g.to), R = m.type === 'moore' ? 31 : 26;
+  const { w, h } = labelSize(m, g);
+  if (a === b) {
+    const ang = m.bends['loop:' + a.id] ?? autoLoop(m, a);
+    const p = (r, t) => [a.x + r * Math.cos(t), a.y + r * Math.sin(t)];
+    const S = p(R, ang - 0.42), E = p(R + 0.5, ang + 0.42), C1 = p(R * 3.1, ang - 0.72), C2 = p(R * 3.1, ang + 0.72);
+    const ext = Math.abs(Math.cos(ang)) * w / 2 + Math.abs(Math.sin(ang)) * h / 2;
+    const [lx, ly] = p(R * 2.55 + 7 + ext, ang);
+    return { d: `M${S[0].toFixed(1)},${S[1].toFixed(1)} C${C1[0].toFixed(1)},${C1[1].toFixed(1)} ${C2[0].toFixed(1)},${C2[1].toFixed(1)} ${E[0].toFixed(1)},${E[1].toFixed(1)}`, lx, ly, w, h, loop: true };
+  }
+  const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
+  const n = [-dy / len, dx / len];
+  const rev = G.has(g.to + '>' + g.from);
+  const bend = m.bends[g.key] ?? (rev ? 30 : 0);
+  const M = [(a.x + b.x) / 2, (a.y + b.y) / 2];
+  const Cp = [M[0] + n[0] * bend * 2, M[1] + n[1] * bend * 2];
+  const u = (P, Q) => { const L = Math.hypot(Q[0] - P[0], Q[1] - P[1]) || 1; return [(Q[0] - P[0]) / L, (Q[1] - P[1]) / L]; };
+  const ua = u([a.x, a.y], Cp), ub = u([b.x, b.y], Cp);
+  const S = [a.x + ua[0] * R, a.y + ua[1] * R], E = [b.x + ub[0] * (R + 0.5), b.y + ub[1] * (R + 0.5)];
+  const Bm = [0.25 * S[0] + 0.5 * Cp[0] + 0.25 * E[0], 0.25 * S[1] + 0.5 * Cp[1] + 0.25 * E[1]];
+  let sgn = bend > 0.5 ? 1 : bend < -0.5 ? -1 : (n[1] < 0 || (Math.abs(n[1]) < 1e-6 && n[0] < 0) ? 1 : -1);
+  const ext = Math.abs(n[0]) * w / 2 + Math.abs(n[1]) * h / 2;
+  const off = 6 + ext;
+  return { d: `M${S[0].toFixed(1)},${S[1].toFixed(1)} Q${Cp[0].toFixed(1)},${Cp[1].toFixed(1)} ${E[0].toFixed(1)},${E[1].toFixed(1)}`,
+    lx: Bm[0] + n[0] * off * sgn, ly: Bm[1] + n[1] * off * sgn, w, h, n, M, bend };
+}
+function nameSVG(name) {
+  const r = String(name).match(/^(.*?)(\d+)$/);
+  if (r && r[1]) return `${esc(r[1])}<tspan class="sub" dy="5">${esc(r[2])}</tspan>`;
+  return esc(name);
+}
+function nameHTML(name) {
+  const r = String(name).match(/^(.*?)(\d+)$/);
+  return `<span class="st-name">${r && r[1] ? `${esc(r[1])}<sub>${esc(r[2])}</sub>` : esc(name)}</span>`;
+}
+
+// ---------- Zeichnen ----------
+function hotInfo() {
+  if (!sim.res) return {};
+  const step = sim.i > 0 ? sim.res.steps[sim.i - 1] : null;
+  const cur = step ? step.to : (sim.tokens.length ? model.start : null);
+  const err = sim.res.stop && sim.i === sim.res.steps.length && sim.res.stop.state ? sim.res.stop.state : null;
+  return { state: cur, tid: step?.tid, key: step ? step.from + '>' + step.to : null, err };
+}
+function svgEdges(m, opt = {}) {
+  const G = groups(m); const H = opt.hot || {}; let s = '';
+  for (const g of G.values()) {
+    const ge = edgeGeom(m, g, G);
+    const isSel = sel?.kind === 'edge' && sel.key === g.key && !opt.export;
+    const isHot = H.key === g.key;
+    const mk = isHot ? 'arH' : 'ar';
+    let lines = '';
+    const top = -ge.h / 2 + 2;
+    g.ts.forEach((t, i) => {
+      const y = top + i * LH + 14;
+      if (H.tid === t.id) lines += `<rect class="lb-hot" x="${(-ge.w / 2).toFixed(1)}" y="${(top + i * LH).toFixed(1)}" width="${ge.w.toFixed(1)}" height="${LH}" rx="3"/>`;
+      const inp = t.inp ? `<tspan class="i">${esc(t.inp)}</tspan>` : '<tspan class="miss">?</tspan>';
+      const out = m.type === 'mealy' ? `<tspan class="s"> / </tspan>${t.out ? `<tspan class="o">${esc(t.out)}</tspan>` : '<tspan class="miss">?</tspan>'}` : '';
+      lines += `<text><tspan x="0" y="${y.toFixed(1)}">${inp}${out}</tspan></text>`;
+    });
+    s += `<g class="ed${isSel ? ' sel' : ''}${isHot ? ' hot' : ''}${tool === 'delete' ? ' del' : ''}" data-gkey="${g.key}">` +
+      (opt.export ? '' : `<path class="ed-hit" data-kind="edge" data-gkey="${g.key}" d="${ge.d}"/>`) +
+      `<path class="ed-p" data-path="${g.key}" d="${ge.d}" marker-end="url(#${mk})"/>` +
+      `<g class="lb" data-kind="label" data-gkey="${g.key}" transform="translate(${ge.lx.toFixed(1)},${ge.ly.toFixed(1)})"><rect class="lb-bg" x="${(-ge.w / 2).toFixed(1)}" y="${(-ge.h / 2).toFixed(1)}" width="${ge.w.toFixed(1)}" height="${ge.h.toFixed(1)}" rx="4"/>${lines}</g></g>`;
+  }
+  return s;
+}
+function svgStates(m, opt = {}) {
+  const R = m.type === 'moore' ? 31 : 26; const H = opt.hot || {}; let s = '';
+  for (const q of m.states) {
+    const cls = ['st'];
+    if (!opt.export) {
+      if (sel?.kind === 'state' && sel.id === q.id) cls.push('sel');
+      if (pendingFrom === q.id) cls.push('pending');
+      if (H.state === q.id && !H.err) cls.push('hot');
+      if (H.err === q.id) cls.push('err');
+      if (tool === 'delete') cls.push('del');
+    }
+    let inner = `${opt.export ? '' : `<circle class="st-ring" r="${R + 6}"/>`}<circle class="st-c" r="${R}"/>`;
+    if (m.type === 'moore') inner += `<line class="st-div" x1="${-R + 6}" x2="${R - 6}" y1="5" y2="5"/><text class="st-n" y="-3">${nameSVG(q.name)}</text><text class="st-o" y="22">${q.out ? esc(q.out) : '?'}</text>`;
+    else inner += `<text class="st-n" y="7">${nameSVG(q.name)}</text>`;
+    const start = q.id === m.start ? `<path class="st-start" d="M${-R - 34},0 L${-R - 1},0" marker-end="url(#ar)"/>` : '';
+    const knob = opt.export ? '' : `<circle class="knob" data-kind="knob" data-sid="${q.id}" cx="${R + 2}" cy="${-R + 2}" r="8"/><path class="knob-p" d="M${R - 2},${-R + 2}h8M${R + 2},${-R - 2}v8"/>`;
+    s += `<g class="${cls.join(' ')}" data-kind="state" data-sid="${q.id}" transform="translate(${q.x},${q.y})">${opt.export ? '' : `<circle class="st-hit" r="${R + 5}"/>`}${start}${inner}${knob}</g>`;
+  }
+  return s;
+}
+function renderCanvas() {
+  const H = hotInfo();
+  $('#gE').innerHTML = svgEdges(model, { hot: H });
+  $('#gS').innerHTML = svgStates(model, { hot: H });
+  $('#world').setAttribute('transform', `translate(${view.tx.toFixed(1)},${view.ty.toFixed(1)}) scale(${view.k.toFixed(4)})`);
+  $('#cv').dataset.tool = tool;
+  $('#hint').hidden = model.states.length > 0;
+  const v = C.validate(model);
+  const chip = $('#chip'); const err = v.issues.filter(i => i.level === 'error').length;
+  chip.className = 'fl chip-stat' + (err ? ' bad' : v.missing.length ? ' warn' : '');
+  chip.querySelector('span').textContent = !model.states.length ? 'Leer' : err ? `${err} ${err === 1 ? 'Fehler' : 'Fehler'}` :
+    v.missing.length ? `${v.have} von ${v.needed} Kanten` : 'vollständig, deterministisch';
+}
+function applyView() { $('#world').setAttribute('transform', `translate(${view.tx.toFixed(1)},${view.ty.toFixed(1)}) scale(${view.k.toFixed(4)})`); placePop(); }
+function bbox(m = model) {
+  if (!m.states.length) return null;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  const G = groups(m);
+  for (const s of m.states) { x0 = Math.min(x0, s.x - 70); x1 = Math.max(x1, s.x + 40); y0 = Math.min(y0, s.y - 40); y1 = Math.max(y1, s.y + 40); }
+  for (const g of G.values()) { const e = edgeGeom(m, g, G); x0 = Math.min(x0, e.lx - e.w / 2 - 6); x1 = Math.max(x1, e.lx + e.w / 2 + 6); y0 = Math.min(y0, e.ly - e.h / 2 - 6); y1 = Math.max(y1, e.ly + e.h / 2 + 6); }
+  return { x0, y0, x1, y1 };
+}
+function fitView() {
+  const b = bbox(); const r = $('#cv').getBoundingClientRect();
+  if (!b || !r.width) { view = { tx: r.width / 2, ty: r.height / 2, k: 1 }; applyView(); return; }
+  const narrow = r.width < 820;
+  const padT = narrow ? 70 : 56, padB = 56, padX = 40;
+  const k = Math.min(1.5, (r.width - padX * 2) / (b.x1 - b.x0), (r.height - padT - padB) / (b.y1 - b.y0));
+  view.k = Math.max(0.25, k);
+  view.tx = (r.width - (b.x1 + b.x0) * view.k) / 2;
+  view.ty = padT + (r.height - padT - padB - (b.y1 - b.y0) * view.k) / 2 - b.y0 * view.k;
+  applyView();
+}
+function zoomAt(f, cx, cy) {
+  const k2 = Math.min(3, Math.max(0.2, view.k * f));
+  view.tx = cx - (cx - view.tx) * k2 / view.k; view.ty = cy - (cy - view.ty) * k2 / view.k; view.k = k2; applyView();
+}
+function toWorld(e) { const r = $('#cv').getBoundingClientRect(); return { x: (e.clientX - r.left - view.tx) / view.k, y: (e.clientY - r.top - view.ty) / view.k }; }
+function toScreen(x, y) { return { x: x * view.k + view.tx, y: y * view.k + view.ty }; }
+
+// ---------- Bearbeiten ----------
+function addState(x, y) {
+  let id;
+  change(m => {
+    const s = { id: C.uid('s'), name: C.freeName(m, 'q'), x: Math.round(x), y: Math.round(y), out: '' };
+    if (m.type === 'moore') s.out = C.omega(m)[0] || '0';
+    m.states.push(s); if (!m.start) m.start = s.id; id = s.id;
+  });
+  sel = { kind: 'state', id }; renderCanvas(); openPop();
+}
+function addTrans(from, to) {
+  const S = C.sigma(model);
+  const free = S.find(a => !C.trOf(model, from, a).length);
+  let tid;
+  change(m => {
+    const t = { id: C.uid('t'), from, to, inp: free || '', out: m.type === 'mealy' ? (C.omega(m)[0] || '') : '' };
+    m.trans.push(t); tid = t.id;
+  });
+  sel = { kind: 'edge', key: from + '>' + to }; renderCanvas(); openPop(tid);
+}
+function delState(id) {
+  change(m => {
+    m.states = m.states.filter(s => s.id !== id); m.trans = m.trans.filter(t => t.from !== id && t.to !== id);
+    if (m.start === id) m.start = m.states[0]?.id || null;
+  });
+}
+function delGroup(key) { change(m => { m.trans = m.trans.filter(t => t.from + '>' + t.to !== key); delete m.bends[key]; }); }
+function deleteSel() { if (!sel) return; if (sel.kind === 'state') delState(sel.id); else delGroup(sel.key); sel = null; closePop(); renderCanvas(); }
+
+// ---------- Popover ----------
+let popFor = null;
+function openPop(focusTid) {
+  const pop = $('#pop'); if (!sel) return closePop();
+  popFor = JSON.stringify(sel);
+  if (sel.kind === 'state') {
+    const s = C.st(model, sel.id); if (!s) return closePop();
+    pop.innerHTML = `<h3>Zustand <button data-a="close" aria-label="Schließen">×</button></h3>
+      <div class="prow"><label for="pName">Name</label><input class="inp" id="pName" value="${esc(s.name)}" spellcheck="false" autocomplete="off"></div>
+      ${model.type === 'moore' ? `<div class="prow"><label for="pOut">Ausgabe</label><input class="inp o" id="pOut" value="${esc(s.out)}" spellcheck="false" autocomplete="off"></div>` : ''}
+      <div class="brow"><button class="btn${model.start === s.id ? ' on' : ''}" data-a="start">${model.start === s.id ? 'Startzustand' : 'Als Start setzen'}</button>
+      <button class="btn" data-a="edge">Kante ziehen</button><button class="btn danger" data-a="del">Löschen</button></div>`;
+  } else {
+    const g = groups().get(sel.key); if (!g) return closePop();
+    const mealy = model.type === 'mealy';
+    pop.innerHTML = `<h3><span>Kante ${nameHTML(C.sname(model, g.from))} → ${nameHTML(C.sname(model, g.to))}</span><button data-a="close" aria-label="Schließen">×</button></h3>
+      <div style="display:grid;grid-template-columns:${mealy ? '1fr 14px 1fr 32px' : '1fr 32px'};gap:5px;font-size:12.5px;color:var(--mute);margin-bottom:3px"><span>Eingabe</span>${mealy ? '<span></span><span>Ausgabe</span>' : ''}<span></span></div>
+      ${g.ts.map(t => `<div class="lrow${mealy ? '' : ' moore'}" data-tid="${t.id}">
+        <input class="inp sm i" data-f="inp" value="${esc(t.inp)}" aria-label="Eingabezeichen" spellcheck="false" autocomplete="off">
+        ${mealy ? `<span class="sl">/</span><input class="inp sm o" data-f="out" value="${esc(t.out)}" aria-label="Ausgabezeichen" spellcheck="false" autocomplete="off">` : ''}
+        <button class="x" data-a="rm" aria-label="Beschriftung entfernen">×</button></div>`).join('')}
+      <div class="brow"><button class="btn" data-a="addl">${ICON.plus} Beschriftung</button><button class="btn" data-a="straight">Gerade</button><button class="btn danger" data-a="delg">Löschen</button></div>`;
+  }
+  pop.hidden = false; placePop();
+  const f = focusTid ? pop.querySelector(`[data-tid="${focusTid}"] input`) : null;
+  if (f && !matchMedia('(pointer:coarse)').matches) { f.focus(); f.select(); }
+}
+function closePop() { $('#pop').hidden = true; popFor = null; }
+function placePop() {
+  const pop = $('#pop'); if (pop.hidden || !sel) return;
+  const r = $('#stage').getBoundingClientRect(); let x, y;
+  if (sel.kind === 'state') { const s = C.st(model, sel.id); if (!s) return; const p = toScreen(s.x, s.y); x = p.x + rad() * view.k + 16; y = p.y - 40; }
+  else { const G = groups(); const g = G.get(sel.key); if (!g) return; const e = edgeGeom(model, g, G); const p = toScreen(e.lx, e.ly); x = p.x + e.w / 2 * view.k + 14; y = p.y - 30; }
+  const w = 268, h = pop.offsetHeight || 160;
+  if (x + w > r.width - 10) x = Math.max(10, x - w - (sel.kind === 'state' ? rad() * view.k * 2 + 32 : 40));
+  x = Math.max(10, Math.min(x, r.width - w - 10)); y = Math.max(10, Math.min(y, r.height - h - 10));
+  pop.style.left = x + 'px'; pop.style.top = y + 'px';
+}
+$('#pop').addEventListener('input', e => {
+  const el = e.target;
+  if (el.id === 'pName') {
+    const v = el.value.trim().replace(/[\s,\/:>{}()#]/g, '');
+    if (!v) return;
+    if (model.states.some(s => s.name === v && s.id !== sel.id)) { el.style.borderColor = 'var(--err)'; return; }
+    el.style.borderColor = ''; change(m => { C.st(m, sel.id).name = v; }, 'name' + sel.id);
+  } else if (el.id === 'pOut') change(m => { C.st(m, sel.id).out = el.value.trim(); }, 'sout' + sel.id);
+  else if (el.dataset.f) {
+    const tid = el.closest('[data-tid]').dataset.tid; const f = el.dataset.f;
+    change(m => { const t = m.trans.find(t => t.id === tid); if (t) t[f] = el.value.trim(); }, f + tid);
+  }
+});
+$('#pop').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); closePop(); } if (e.key === 'Escape') { closePop(); } });
+$('#pop').addEventListener('click', e => {
+  const a = e.target.closest('[data-a]')?.dataset.a; if (!a) return;
+  if (a === 'close') return closePop();
+  if (a === 'start') { change(m => { m.start = sel.id; }); openPop(); }
+  if (a === 'edge') { setTool('edge'); pendingFrom = sel.id; closePop(); renderCanvas(); toast('Tippe jetzt auf den Zielzustand.'); }
+  if (a === 'del') { deleteSel(); }
+  if (a === 'delg') { deleteSel(); }
+  if (a === 'straight') { change(m => { delete m.bends[sel.key]; delete m.bends['loop:' + sel.key.split('>')[0]]; }); }
+  if (a === 'rm') { const tid = e.target.closest('[data-tid]').dataset.tid; change(m => { m.trans = m.trans.filter(t => t.id !== tid); }); if (groups().get(sel?.key)) openPop(); else { sel = null; closePop(); renderCanvas(); } }
+  if (a === 'addl') {
+    const [from, to] = sel.key.split('>'); const free = C.sigma(model).find(x => !C.trOf(model, from, x).length) || '';
+    let tid; change(m => { const t = { id: C.uid('t'), from, to, inp: free, out: m.type === 'mealy' ? (C.omega(m)[0] || '') : '' }; m.trans.push(t); tid = t.id; });
+    openPop(tid);
+  }
+});
+
+// ---------- Zeiger ----------
+const cv = $('#cv');
+const ptrs = new Map(); let drag = null; let lastTap = { t: 0, x: 0, y: 0 };
+function hit(e) { const el = document.elementFromPoint(e.clientX, e.clientY); return el?.closest?.('[data-kind]'); }
+cv.addEventListener('pointerdown', e => {
+  if (e.button > 0) return;
+  cv.setPointerCapture(e.pointerId);
+  ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (ptrs.size === 2) {
+    const [p1, p2] = [...ptrs.values()];
+    drag = { kind: 'pinch', d0: Math.hypot(p1.x - p2.x, p1.y - p2.y), k0: view.k, tx0: view.tx, ty0: view.ty, c0: { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 } };
+    return;
+  }
+  const t = e.target.closest('[data-kind]'); const kind = t?.dataset.kind; const p = toWorld(e);
+  const base = { sx: e.clientX, sy: e.clientY, moved: false, p };
+  if (tool === 'delete' && t) { drag = { ...base, kind: 'del', t }; return; }
+  if (kind === 'knob' || (kind === 'state' && (tool === 'edge' || e.shiftKey))) { drag = { ...base, kind: 'edge', from: t.dataset.sid }; return; }
+  if (kind === 'state') { const s = C.st(model, t.dataset.sid); drag = { ...base, kind: 'move', id: s.id, ox: p.x - s.x, oy: p.y - s.y, before: JSON.stringify(model) }; return; }
+  if (kind === 'label' || kind === 'edge') { drag = { ...base, kind: 'bend', key: t.dataset.gkey, before: JSON.stringify(model), lab: kind === 'label' }; return; }
+  drag = { ...base, kind: 'pan', tx0: view.tx, ty0: view.ty };
+});
+cv.addEventListener('pointermove', e => {
+  if (ptrs.has(e.pointerId)) ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (!drag) return;
+  if (drag.kind === 'pinch') {
+    if (ptrs.size < 2) return; const [p1, p2] = [...ptrs.values()]; const r = cv.getBoundingClientRect();
+    const d = Math.hypot(p1.x - p2.x, p1.y - p2.y); const c = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+    const k = Math.min(3, Math.max(0.2, drag.k0 * d / drag.d0));
+    const wx = (drag.c0.x - r.left - drag.tx0) / drag.k0, wy = (drag.c0.y - r.top - drag.ty0) / drag.k0;
+    view.k = k; view.tx = c.x - r.left - wx * k; view.ty = c.y - r.top - wy * k; applyView(); return;
+  }
+  const dist = Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy);
+  if (!drag.moved && dist < 5) return;
+  drag.moved = true; const p = toWorld(e);
+  if (drag.kind === 'pan') { view.tx = drag.tx0 + e.clientX - drag.sx; view.ty = drag.ty0 + e.clientY - drag.sy; cv.classList.add('panning'); applyView(); }
+  else if (drag.kind === 'move') {
+    const s = C.st(model, drag.id); let x = p.x - drag.ox, y = p.y - drag.oy;
+    if (!e.altKey) { x = Math.round(x / 12) * 12; y = Math.round(y / 12) * 12; }
+    s.x = x; s.y = y; renderCanvas(); placePop();
+  } else if (drag.kind === 'bend') {
+    const [from, to] = drag.key.split('>');
+    if (from === to) { const s = C.st(model, from); model.bends['loop:' + from] = Math.atan2(p.y - s.y, p.x - s.x); }
+    else { const G = groups(); const ge = edgeGeom(model, G.get(drag.key), G); let b = ((p.x - ge.M[0]) * ge.n[0] + (p.y - ge.M[1]) * ge.n[1]) * 0.8; if (Math.abs(b) < 8) b = 0; model.bends[drag.key] = Math.round(b); }
+    renderCanvas(); placePop();
+  } else if (drag.kind === 'edge') {
+    const s = C.st(model, drag.from); const h = hit(e); const tgt = h?.closest('[data-sid]')?.dataset.sid;
+    let d;
+    if (tgt === drag.from) { d = `M${s.x - 14},${s.y - rad()} C${s.x - 50},${s.y - 95} ${s.x + 50},${s.y - 95} ${s.x + 14},${s.y - rad()}`; }
+    else if (tgt) { const q = C.st(model, tgt); d = `M${s.x},${s.y} L${q.x},${q.y}`; }
+    else d = `M${s.x},${s.y} L${p.x},${p.y}`;
+    $('#gO').innerHTML = `<path class="ghost" d="${d}" marker-end="url(#arH)"/>`;
+  }
+});
+function endPtr(e) {
+  ptrs.delete(e.pointerId);
+  if (!drag) return;
+  if (drag.kind === 'pinch') { if (ptrs.size < 2) drag = null; return; }
+  const d = drag; drag = null; cv.classList.remove('panning'); $('#gO').innerHTML = '';
+  if (e.type === 'pointercancel') { if (d.before) { model = C.normalize(JSON.parse(d.before)); renderCanvas(); } return; }
+  const now = Date.now(); const dbl = !d.moved && now - lastTap.t < 330 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 22;
+  lastTap = d.moved ? { t: 0 } : { t: now, x: e.clientX, y: e.clientY };
+  if (d.kind === 'del') { const t = d.t; if (t.dataset.sid) delState(t.dataset.sid); else if (t.dataset.gkey) delGroup(t.dataset.gkey); return; }
+  if (d.kind === 'move') {
+    if (d.moved) { pushBefore(d.before); if (sel?.kind === 'state' && sel.id === d.id) placePop(); return; }
+    if (tool === 'edge') return tapEdgeTool(d.id);
+    sel = { kind: 'state', id: d.id }; renderCanvas(); openPop();
+    if (dbl) { $('#pName')?.focus(); $('#pName')?.select(); }
+    return;
+  }
+  if (d.kind === 'bend') {
+    if (d.moved) { pushBefore(d.before); return; }
+    sel = { kind: 'edge', key: d.key }; renderCanvas(); openPop(); return;
+  }
+  if (d.kind === 'edge') {
+    const tgt = hit(e)?.closest('[data-sid]')?.dataset.sid;
+    if (!d.moved) { if (tool === 'edge') tapEdgeTool(d.from); return; }
+    if (tgt) addTrans(d.from, tgt); return;
+  }
+  if (d.kind === 'pan') {
+    if (d.moved) return;
+    if (tool === 'state' || dbl) { addState(Math.round(d.p.x / 12) * 12, Math.round(d.p.y / 12) * 12); return; }
+    if (pendingFrom) { pendingFrom = null; renderCanvas(); }
+    if (sel) { sel = null; closePop(); renderCanvas(); }
+  }
+}
+function tapEdgeTool(id) {
+  if (!pendingFrom) { pendingFrom = id; sel = null; closePop(); renderCanvas(); toast('Jetzt den Zielzustand antippen. Derselbe Zustand ergibt eine Schleife.'); return; }
+  const from = pendingFrom; pendingFrom = null; addTrans(from, id);
+}
+cv.addEventListener('pointerup', endPtr);
+cv.addEventListener('pointercancel', endPtr);
+cv.addEventListener('wheel', e => {
+  e.preventDefault(); const r = cv.getBoundingClientRect();
+  if (e.ctrlKey || e.metaKey || Math.abs(e.deltaY) > 40 && e.deltaMode === 0 && !e.deltaX && Number.isInteger(e.deltaY)) zoomAt(Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)), e.clientX - r.left, e.clientY - r.top);
+  else { view.tx -= e.deltaX; view.ty -= e.deltaY; applyView(); }
+}, { passive: false });
+
+// ---------- Werkzeuge ----------
+const TOOLS = [['select', 'Auswählen und verschieben', 'V'], ['state', 'Zustand anlegen', 'Z'], ['edge', 'Kante ziehen', 'K'], ['delete', 'Löschen per Klick', 'X']];
+function renderTools() {
+  $('#tools').innerHTML = TOOLS.map(([id, t, k]) => `<button class="tbtn" data-tool="${id}" aria-pressed="${tool === id}" title="${t} (${k})" aria-label="${t}">${ICON[id === 'delete' ? 'del' : id]}<span class="k">${k}</span></button>`).join('') +
+    `<span class="tsep"></span><button class="tbtn" data-act="layout" title="Automatisch anordnen (L)" aria-label="Automatisch anordnen">${ICON.layout}</button>`;
+}
+function setTool(t) { tool = t; if (t !== 'edge') pendingFrom = null; renderTools(); renderCanvas(); }
+$('#tools').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.tool) setTool(b.dataset.tool);
+  if (b.dataset.act === 'layout') doLayout('force');
+});
+function doLayout(kind) {
+  if (!model.states.length) return;
+  change(m => { kind === 'circle' ? C.layoutCircle(m) : C.layoutForce(m); });
+  fitView(); toast('Neu angeordnet');
+}
+
+// ---------- Simulation ----------
+function recompute() {
+  sim.tokens = C.tokenize(C.sigma(model), sim.word);
+  sim.res = C.run(model, sim.tokens);
+  sim.i = Math.min(sim.i, sim.res.steps.length);
+}
+function stopPlay() { sim.playing = false; sim.run++; $('#gO').innerHTML = ''; updatePlayBtn(); }
+function updatePlayBtn() { const b = $('#sPlay'); b.innerHTML = sim.playing ? ICON.pause : ICON.play; b.title = sim.playing ? 'Anhalten (Leertaste)' : 'Abspielen (Leertaste)'; b.setAttribute('aria-label', sim.playing ? 'Anhalten' : 'Abspielen'); }
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function animateStep(runId) {
+  const step = sim.res.steps[sim.i]; if (!step) return false;
+  const key = step.from + '>' + step.to;
+  const path = document.querySelector(`[data-path="${key}"]`);
+  const dur = reduced ? 0 : 620 / sim.speed;
+  if (path && dur) {
+    // aktive Kante vorab markieren
+    path.closest('.ed')?.classList.add('hot'); path.setAttribute('marker-end', 'url(#arH)');
+    const L = path.getTotalLength(); const t0 = performance.now();
+    const out = model.type === 'mealy' ? step.out : '';
+    $('#gO').innerHTML = `<circle class="token" r="8"/>${out ? `<text class="token-o" dy="-14">${esc(out)}</text>` : ''}`;
+    const tok = $('#gO').firstElementChild, lab = $('#gO').querySelector('text');
+    await new Promise(res => {
+      const f = now => {
+        if (runId !== sim.run) return res();
+        const u = Math.min(1, (now - t0) / dur); const ease = u < .5 ? 2 * u * u : 1 - (-2 * u + 2) ** 2 / 2;
+        const pt = path.getPointAtLength(L * ease);
+        tok.setAttribute('cx', pt.x); tok.setAttribute('cy', pt.y);
+        if (lab) { lab.setAttribute('x', pt.x); lab.setAttribute('y', pt.y); lab.style.opacity = Math.min(1, u * 3); }
+        u < 1 ? requestAnimationFrame(f) : res();
+      };
+      requestAnimationFrame(f);
+    });
+    if (runId !== sim.run) return false;
+    $('#gO').innerHTML = '';
+  }
+  sim.i++; sim.fresh = sim.i; renderSim(); return true;
+}
+async function play() {
+  if (!sim.res) return;
+  if (sim.i >= sim.res.steps.length) { sim.i = 0; renderSim(); await sleep(200); }
+  sim.playing = true; updatePlayBtn(); const id = ++sim.run;
+  while (sim.playing && id === sim.run && sim.i < sim.res.steps.length) {
+    const ok = await animateStep(id); if (!ok) break;
+    if (sim.i < sim.res.steps.length) await sleep(reduced ? 350 : 260 / sim.speed);
+  }
+  if (id === sim.run) { sim.playing = false; updatePlayBtn(); }
+}
+async function stepOnce() { if (sim.playing) stopPlay(); const id = ++sim.run; await animateStep(id); }
+function renderSim() {
+  const res = sim.res; if (!res) return;
+  const n = res.steps.length; const mealy = model.type === 'mealy';
+  // Eingabeband
+  const tin = $('#tapeIn');
+  tin.innerHTML = sim.tokens.length ? sim.tokens.map((a, k) => {
+    const c = ['cellt']; if (k < sim.i) c.push('done'); if (k === sim.i && k < sim.tokens.length && !(res.stop && k === res.stop.at && sim.i === n)) c.push('cur');
+    if (res.stop && k === res.stop.at && sim.i === n) c.push('bad', 'cur');
+    return `<div class="${c.join(' ')}">${esc(a)}</div>`;
+  }).join('') : '<span class="mut" style="padding:8px 2px">Tippe oben ein Eingabewort ein.</span>';
+  // Ausgabeband
+  const outs = [];
+  if (!mealy && res.startOut != null) outs.push({ v: res.startOut, init: true });
+  for (let k = 0; k < sim.tokens.length; k++) outs.push(k < sim.i ? { v: res.steps[k].out, fresh: k + 1 === sim.fresh } : { empty: true });
+  $('#tapeOut').innerHTML = outs.length ? outs.map(o => `<div class="cellt${o.empty ? ' empty' : ''}${o.fresh ? ' fresh' : ''}${o.init ? ' init' : ''}"${o.init ? ' title="Ausgabe des Startzustands"' : ''}>${o.empty ? '·' : esc(o.v || '?')}</div>`).join('') : '';
+  sim.fresh = -1;
+  const cur = tin.querySelector('.cur'); if (cur) { const L = cur.offsetLeft - tin.clientWidth / 2 + cur.offsetWidth / 2; tin.scrollLeft = Math.max(0, L); $('#tapeOut').scrollLeft = tin.scrollLeft; }
+  // Status
+  const stEl = $('#status'); stEl.className = 'status';
+  if (!model.states.length) stEl.textContent = '';
+  else if (res.stop?.reason === 'nostart') { stEl.textContent = 'Kein Startzustand.'; stEl.classList.add('bad'); }
+  else if (res.stop && sim.i === n) {
+    stEl.classList.add('bad');
+    stEl.textContent = res.stop.reason === 'symbol' ? `„${res.stop.sym}“ gehört nicht zu Σ.` : `Keine Kante für δ(${C.sname(model, res.stop.state)}, ${res.stop.sym}). Stopp.`;
+  } else if (sim.tokens.length && sim.i === n) { stEl.classList.add('done'); stEl.textContent = `Fertig: ${C.joinSyms(C.omega(model), C.outputs(model, res))}`; }
+  else stEl.textContent = sim.tokens.length ? `Schritt ${sim.i} von ${sim.tokens.length}` : '';
+  // Formel
+  const f = $('#formula');
+  if (sim.i > 0) {
+    const s = res.steps[sim.i - 1];
+    f.innerHTML = `δ(${nameHTML(C.sname(model, s.from))}, <span class="sym-i">${esc(s.inp)}</span>) = ${nameHTML(C.sname(model, s.to))} &nbsp;&nbsp; ` +
+      (mealy ? `λ(${nameHTML(C.sname(model, s.from))}, <span class="sym-i">${esc(s.inp)}</span>) = <span class="sym-o">${esc(s.out)}</span>` : `λ(${nameHTML(C.sname(model, s.to))}) = <span class="sym-o">${esc(s.out)}</span>`);
+  } else if (model.start) f.innerHTML = `<span class="m">Start in</span> ${nameHTML(C.sname(model, model.start))}` + (!mealy ? ` &nbsp; λ(${nameHTML(C.sname(model, model.start))}) = <span class="sym-o">${esc(C.st(model, model.start).out)}</span>` : '');
+  else f.innerHTML = '';
+  $('#sBack').disabled = $('#sReset').disabled = sim.i === 0;
+  $('#sStep').disabled = $('#sEnd').disabled = sim.i >= n;
+  renderCanvas();
+  if (tab === 'ablauf') renderPanel();
+}
+
+// ---------- Panel ----------
+const TABS = [['tupel', 'Tupel'], ['tabelle', 'Tabelle'], ['text', 'Text'], ['pruefen', 'Prüfen'], ['tests', 'Tests'], ['ablauf', 'Ablauf']];
+function renderTabs() {
+  const v = C.validate(model); const err = v.issues.filter(i => i.level === 'error').length; const warn = v.missing.length;
+  const tr = testResults(); const failed = tr.filter(r => r.exp && !r.ok).length;
+  $('#tabs').innerHTML = TABS.map(([id, l]) => {
+    let b = '';
+    if (id === 'pruefen' && (err || warn)) b = `<span class="badge${err ? ' bad' : ''}">${err || warn}</span>`;
+    if (id === 'tests' && tr.some(r => r.exp)) b = failed ? `<span class="badge bad">${failed}</span>` : `<span class="badge ok">✓</span>`;
+    return `<button role="tab" data-tab="${id}" aria-selected="${tab === id}">${l}${b}</button>`;
+  }).join('');
+  $('#sheetTitle').textContent = TABS.find(t => t[0] === tab)[1];
+}
+$('#tabs').addEventListener('click', e => { const b = e.target.closest('[data-tab]'); if (!b) return; tab = b.dataset.tab; persist(); renderTabs(); renderPanel(true); });
+function renderPanel(force) {
+  const pb = $('#pbody');
+  if (!force && pb.contains(document.activeElement) && document.activeElement !== pb) { panelDirty = true; return; }
+  panelDirty = false;
+  pb.innerHTML = ({ tupel: pTupel, tabelle: pTabelle, text: pText, pruefen: pPruefen, tests: pTests, ablauf: pAblauf })[tab]();
+  if (tab === 'text') { const ta = $('#code'); ta.value = textDirty || !ta.value ? C.toText(model) : ta.value; textDirty = false; renderTextErrors(); }
+}
+$('#pbody').addEventListener('focusout', () => setTimeout(() => { if (panelDirty && !$('#pbody').contains(document.activeElement)) { textDirty = true; renderPanel(); } }, 0));
+const symChips = (list, cls, used, kind) => list.map(s => `<span class="chip ${cls}${used.has(s) ? '' : ' decl'}" title="${used.has(s) ? 'wird benutzt' : 'deklariert, noch unbenutzt'}">${esc(s)}<button data-rm="${kind}" data-sym="${esc(s)}" aria-label="${esc(s)} entfernen" ${used.has(s) ? 'disabled' : ''}>×</button></span>`).join('');
+function pTupel() {
+  const m = model, mealy = m.type === 'mealy', S = C.sigma(m), O = C.omega(m);
+  const usedI = new Set(m.trans.map(t => t.inp)), usedO = new Set(mealy ? m.trans.map(t => t.out) : m.states.map(s => s.out));
+  const G = groups();
+  const vals = [];
+  for (const s of m.states) for (const a of S) { const t = C.trOf(m, s.id, a)[0]; if (t) vals.push(`<li>δ(${nameHTML(s.name)}, <span class="sym-i">${esc(a)}</span>) = ${nameHTML(C.sname(m, t.to))}</li>`); }
+  const lvals = mealy ? m.states.flatMap(s => S.map(a => { const t = C.trOf(m, s.id, a)[0]; return t ? `<li>λ(${nameHTML(s.name)}, <span class="sym-i">${esc(a)}</span>) = <span class="sym-o">${esc(t.out)}</span></li>` : ''; })).join('')
+    : m.states.map(s => `<li>λ(${nameHTML(s.name)}) = <span class="sym-o">${esc(s.out)}</span></li>`).join('');
+  return `<input class="inp" id="mName" value="${esc(m.name)}" aria-label="Name des Automaten" style="font-family:var(--serif);font-weight:600;font-size:22px;height:42px;border-color:transparent;padding:0 4px;margin:-6px 0 2px -4px">
+  <p class="mut">${mealy ? 'Mealy-Automat: Die Ausgabe hängt von Zustand und Eingabe ab und steht an der Kante.' : 'Moore-Automat: Die Ausgabe hängt nur vom Zustand ab und steht im Zustand.'}</p>
+  <div class="tuple">M <span class="p">= (</span>Q, <span class="sym-i">Σ</span>, <span class="sym-o">Ω</span>, δ, <span class="sym-o">λ</span>, q<sub>0</sub><span class="p">)</span></div>
+  <dl class="def">
+    <dt>Q</dt><dd>${m.states.length ? m.states.map(s => `<span class="chip q">${nameHTML(s.name)}</span>`).join('') : '<span class="mut">noch leer</span>'}</dd>
+    <dt class="sym-i">Σ</dt><dd>${symChips(S, 'i', usedI, 'sigma')}<input class="addsym" data-add="sigma" placeholder="+ Zeichen" aria-label="Eingabezeichen hinzufügen"></dd>
+    <dt class="sym-o">Ω</dt><dd>${symChips(O, 'o', usedO, 'omega')}<input class="addsym" data-add="omega" placeholder="+ Zeichen" aria-label="Ausgabezeichen hinzufügen"></dd>
+    <dt>δ</dt><dd class="fn">Q × <span class="sym-i">Σ</span> → Q</dd>
+    <dt class="sym-o">λ</dt><dd class="fn">${mealy ? 'Q × <span class="sym-i">Σ</span>' : 'Q'} → <span class="sym-o">Ω</span></dd>
+    <dt>q<sub>0</sub></dt><dd><select class="inp sm" id="mStart" style="width:auto;font-family:var(--serif);font-style:italic">${m.states.map(s => `<option value="${s.id}" ${s.id === m.start ? 'selected' : ''}>${esc(s.name)}</option>`).join('') || '<option>keiner</option>'}</select></dd>
+  </dl>
+  <p class="mut" style="margin-top:12px">${m.states.length} Zustände, ${S.length} Eingabezeichen, ${O.length} Ausgabezeichen. Vollständig sind es |Q| · |Σ| = ${m.states.length * S.length} Kanten, gezeichnet ${G.size} Pfeile mit ${m.trans.length} Beschriftungen. Gestrichelte Zeichen sind deklariert, kommen aber noch nicht vor.</p>
+  <details class="box" ${vals.length && vals.length <= 16 ? 'open' : ''}><summary>Alle Funktionswerte</summary><ul class="fvals">${vals.join('')}</ul><ul class="fvals" style="margin-top:8px">${lvals}</ul></details>
+  <div class="brow" style="margin-top:12px"><button class="btn" data-x="latex">Tupel als LaTeX kopieren</button></div>`;
+}
+function pTabelle() {
+  const m = model, mealy = m.type === 'mealy', S = C.sigma(m);
+  if (!m.states.length) return '<h2>Übergangstabelle</h2><p class="mut">Noch keine Zustände.</p><button class="btn" data-x="addrow">' + ICON.plus + ' Zustand</button>';
+  const opts = sel0 => `<option value="">–</option>` + m.states.map(s => `<option value="${s.id}" ${s.id === sel0 ? 'selected' : ''}>${esc(s.name)}</option>`).join('');
+  return `<h2>Übergangstabelle</h2><p class="mut">${mealy ? 'Jede Zelle: Folgezustand δ und Ausgabe λ.' : 'Jede Zelle: Folgezustand δ. Die Ausgabe λ steht in der letzten Spalte.'} Ändern wirkt sofort im Diagramm.</p>
+  <div class="tbl-wrap"><table class="t"><thead><tr><th>Zustand</th>${S.map(a => `<th>Eingabe <span class="sym-i">${esc(a)}</span></th>`).join('')}${mealy ? '' : '<th><span class="sym-o">λ</span></th>'}</tr></thead><tbody>
+  ${m.states.map(s => `<tr><td><span class="rowh" data-selstate="${s.id}"><span class="arr">${s.id === m.start ? '→' : ''}</span>${nameHTML(s.name)}</span></td>${S.map(a => {
+    const ts = C.trOf(m, s.id, a); const t = ts[0];
+    return `<td><div class="cell"><select data-cell="${s.id}" data-sym="${esc(a)}" class="${t ? '' : 'empty'}" aria-label="δ(${esc(s.name)}, ${esc(a)})">${opts(t?.to)}</select>${mealy ? `<input class="inp sm o" data-cellout="${s.id}" data-sym="${esc(a)}" value="${esc(t?.out || '')}" ${t ? '' : 'disabled'} aria-label="λ(${esc(s.name)}, ${esc(a)})" spellcheck="false">` : ''}${ts.length > 1 ? `<span class="warn" title="mehrdeutig">${ts.length}×</span>` : ''}</div></td>`;
+  }).join('')}${mealy ? '' : `<td><input class="inp sm o" data-sout="${s.id}" value="${esc(s.out)}" style="width:64px" aria-label="Ausgabe von ${esc(s.name)}" spellcheck="false"></td>`}</tr>`).join('')}
+  </tbody></table></div>
+  <div class="brow" style="margin-top:12px"><button class="btn" data-x="addrow">${ICON.plus} Zustand</button><input class="addsym" data-add="sigma" placeholder="+ Spalte" aria-label="Eingabezeichen hinzufügen" style="height:36px;width:110px"></div>
+  <details class="box"><summary>Als LaTeX-Tabelle</summary><pre style="font:12.5px/1.5 var(--mono);white-space:pre;overflow:auto;margin:8px 0 6px">${esc(latexTable())}</pre><button class="btn" data-x="copytab">Kopieren</button></details>`;
+}
+function latexTable() {
+  const m = model, S = C.sigma(m), mealy = m.type === 'mealy';
+  const L = [`\\begin{tabular}{l|${S.map(() => 'c').join('')}${mealy ? '' : '|c'}}`, ` & ${S.map(a => '$' + a.replace(/[_$&#%{}]/g, '\\$&') + '$').join(' & ')}${mealy ? '' : ' & $\\lambda$'} \\\\ \\hline`];
+  for (const s of m.states) {
+    const cells = S.map(a => { const t = C.trOf(m, s.id, a)[0]; return t ? `$${C.texName(C.sname(m, t.to))}${mealy ? ' / \\mathsf{' + t.out + '}' : ''}$` : '--'; });
+    L.push(`$${s.id === m.start ? '\\to ' : ''}${C.texName(s.name)}$ & ${cells.join(' & ')}${mealy ? '' : ` & $\\mathsf{${s.out}}$`} \\\\`);
+  }
+  L.push('\\end{tabular}'); return L.join('\n');
+}
+function pText() {
+  return `<h2>Kurzschreibweise</h2><p class="mut">Schreib den Automaten als Text. Gültige Änderungen landen sofort im Diagramm, Positionen bleiben erhalten.</p>
+  <textarea class="code" id="code" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Automat als Text"></textarea>
+  <ul class="errs" id="errs"></ul>
+  <details class="box"><summary>So funktioniert die Schreibweise</summary><div class="syntax" style="margin-top:8px"># Name des Automaten
+typ mealy            (oder: typ moore)
+eingabe: 1 2         (Σ, optional)
+ausgabe: n t w       (Ω, optional)
+start q0
+zustand q0           (Moore: zustand q0 / 0)
+q0 -> q1 : 1/n, 2/t  (Moore: q0 -> q1 : 1, 2)</div></details>`;
+}
+function renderTextErrors() { const e = $('#errs'); if (e) e.innerHTML = textErrors.map(x => `<li>Zeile ${x.line}: ${esc(x.msg)}</li>`).join(''); }
+let textTimer = null;
+function onCode(ta) {
+  clearTimeout(textTimer);
+  textTimer = setTimeout(() => {
+    const { model: m, errors } = C.parseText(ta.value, model);
+    textErrors = errors; renderTextErrors();
+    if (errors.length) return;
+    C.placeMissing(m);
+    const before = JSON.stringify(model);
+    const keep = { ...m };
+    if (JSON.stringify(C.toText(m)) === JSON.stringify(C.toText(model))) return;
+    undoS.push(before); redoS = []; model = C.normalize(keep); sel = null; closePop();
+    recompute(); renderCanvas(); renderSim(); renderTabs(); renderHeader(); persist();
+  }, 450);
+}
+function pPruefen() {
+  const v = C.validate(model), m = model, mealy = m.type === 'mealy';
+  const nondet = v.issues.some(i => i.code === 'nondet');
+  let html = `<h2>Prüfen und umformen</h2>
+  <div class="stats"><div class="stat"><b>${v.have}<span style="font-size:15px;color:var(--mute)"> / ${v.needed}</span></b><span>Kanten</span></div>
+  <div class="stat"><b class="${v.complete ? 'pass' : 'failc'}">${v.complete ? 'ja' : 'nein'}</b><span>vollständig</span></div>
+  <div class="stat"><b class="${!nondet && v.det ? 'pass' : 'failc'}">${!nondet && v.det ? 'ja' : 'nein'}</b><span>deterministisch</span></div></div>
+  <ul class="issues">${v.issues.map(i => `<li class="${i.level}"><i></i><div>${esc(i.text)}${i.fix === 'loops' ? `<br><button class="btn" data-x="fixloops">Fehlende als Schleifen ergänzen</button>` : ''}${i.fix === 'unreach' ? `<br><button class="btn" data-x="fixunreach">Unerreichbare löschen</button>` : ''}</div></li>`).join('')}</ul>`;
+  html += `<h3>${mealy ? 'In Moore umwandeln' : 'In Mealy umwandeln'}</h3>
+  <p class="mut">${mealy ? 'Jeder neue Zustand ist ein Paar (Zustand, zuletzt ausgegebenes Zeichen). Der Start bekommt ε, weil noch nichts ausgegeben wurde. Das Ausgabewort wird dadurch ein Zeichen länger.' : 'Die Ausgabe des Zielzustands wandert auf jede eingehende Kante: λ(q, a) = λ(δ(q, a)). Die Zustände bleiben gleich.'}</p>
+  <button class="btn pri" data-x="convert">${mealy ? 'In Moore umwandeln' : 'In Mealy umwandeln'}</button>`;
+  if (conv && conv.forName === m.name && conv.mapping?.length && m.type === 'moore') html += `<details class="box" open><summary>Zuordnung der neuen Zustände</summary><div class="tbl-wrap"><table class="t"><thead><tr><th>neu</th><th>Paar</th></tr></thead><tbody>${conv.mapping.map(r => `<tr><td>${nameHTML(r.name)}</td><td>(${nameHTML(r.from)}, <span class="sym-o">${esc(r.out)}</span>)</td></tr>`).join('')}</tbody></table></div></details>`;
+  html += `<h3>Minimieren</h3><p class="mut">Zustände, die sich bei jedem Eingabewort gleich verhalten, werden zusammengelegt. Erst nach ${mealy ? 'den Ausgaben pro Eingabezeichen' : 'der Ausgabe'} trennen, dann so lange verfeinern, bis sich nichts mehr ändert.</p>`;
+  if (!minPrev) html += `<button class="btn" data-x="minprev">Minimierung berechnen</button>`;
+  else if (!minPrev.ok) html += `<p class="failc" style="font-weight:400">${esc(minPrev.reason)}</p>`;
+  else {
+    html += `<div class="rounds">${minPrev.rounds.map((r, k) => `<div class="round"><b>P${k}</b>${r.map(c => `<span class="cls">{${c.map(nameHTML).join(', ')}}</span>`).join('')}</div>`).join('')}<div class="round mut"><b>P${minPrev.rounds.length}</b>= P${minPrev.rounds.length - 1}, keine Klasse zerfällt weiter. Fertig.</div></div>
+    <p>${minPrev.after === minPrev.before ? `Schon minimal: ${minPrev.after} Zustände.` : `Von ${minPrev.before} auf ${minPrev.after} Zustände.`}${minPrev.removedUnreach ? ` Dabei fallen ${minPrev.removedUnreach} unerreichbare weg.` : ''}</p>
+    ${minPrev.after < minPrev.before ? '<button class="btn pri" data-x="minapply">Minimalen Automaten übernehmen</button>' : ''}`;
+  }
+  return html;
+}
+function testResults() {
+  const O = C.omega(model);
+  return (model.tests || []).map(t => {
+    const toks = C.tokenize(C.sigma(model), t.w); const r = C.run(model, toks);
+    const out = r.stop ? null : C.joinSyms(O, C.outputs(model, r));
+    const norm = s => C.isSingle(O) || !O.length ? String(s).replace(/[\s,;]+/g, '') : String(s).trim().split(/[\s,;]+/).join(' ');
+    return { ...t, out, stop: r.stop, ok: out != null && t.exp !== '' && norm(out) === norm(t.exp) };
+  });
+}
+function pTests() {
+  const tr = testResults(); const task = model.task ? TASKS.find(t => t.id === model.task) : null;
+  const withExp = tr.filter(r => r.exp); const passed = withExp.filter(r => r.ok).length;
+  let html = '';
+  if (task) html += `<div class="task"><h2>${esc(task.title)}</h2><p>${esc(task.text)}</p><p class="mut">${task.type === 'mealy' ? 'Mealy' : 'Moore'}, Σ = {${task.sigma.map(esc).join(', ')}}, Ω = {${task.omega.map(esc).join(', ')}}</p>
+    <div class="brow"><button class="btn" data-x="solution">Lösung zeigen</button><button class="btn" data-x="leavetask">Aufgabe verlassen</button></div></div>`;
+  else html += `<h2>Tests</h2><p class="mut">Lege Eingabewörter mit der erwarteten Ausgabe an. Jede Änderung am Automaten prüft alles neu.</p>`;
+  if (withExp.length) html += `<p class="score"><b class="${passed === withExp.length ? 'pass' : 'failc'}">${passed} von ${withExp.length}</b> bestanden${passed === withExp.length && task ? '. Aufgabe gelöst.' : ''}</p>`;
+  html += `<div class="tbl-wrap"><table class="t tests"><colgroup><col style="width:27%"><col style="width:27%"><col><col style="width:22px"><col style="width:54px"></colgroup><thead><tr><th>Eingabe</th><th>erwartet</th><th>Ausgabe</th><th class="c"></th><th></th></tr></thead><tbody>
+  ${tr.map((r, k) => `<tr><td><input class="inp sm i" data-tw="${k}" value="${esc(r.w)}" spellcheck="false" aria-label="Eingabewort ${k + 1}" style="font-family:var(--mono)"></td>
+    <td><input class="inp sm o" data-te="${k}" value="${esc(r.exp)}" spellcheck="false" aria-label="erwartete Ausgabe ${k + 1}" style="font-family:var(--mono)"></td>
+    <td>${r.stop ? '<span class="failc" style="font-family:var(--sans);font-size:13px" title="Der Automat bleibt bei diesem Wort stehen">Stopp</span>' : esc(r.out)}</td>
+    <td class="c">${r.exp ? (r.ok ? '<span class="pass" aria-label="bestanden">✓</span>' : '<span class="failc" aria-label="falsch">✗</span>') : ''}</td>
+    <td style="white-space:nowrap"><button class="x" data-tload="${k}" title="Im Simulator abspielen" aria-label="Abspielen">▸</button><button class="x" data-trm="${k}" aria-label="Test löschen">×</button></td></tr>`).join('')}
+  </tbody></table></div>
+  <div class="brow" style="margin-top:10px"><button class="btn" data-x="addtest">${ICON.plus} Test</button><button class="btn" data-x="curtest">Aktuelles Wort als Test</button>${tr.some(r => !r.exp && r.out != null) ? '<button class="btn" data-x="fillexp">Leere Erwartungen füllen</button>' : ''}</div>`;
+  if (!task) html += `<p class="mut" style="margin-top:16px">Fertige Übungen mit automatischer Kontrolle findest du im Menü Aufgaben.</p>`;
+  return html;
+}
+function pAblauf() {
+  const res = sim.res; if (!res || !sim.tokens.length) return '<h2>Ablauf</h2><p class="mut">Gib unten ein Eingabewort ein. Hier erscheint dann jeder Schritt mit δ und λ.</p>';
+  const mealy = model.type === 'mealy'; const O = C.omega(model);
+  const rows = res.steps.map((s, k) => `<tr class="${k === sim.i - 1 ? 'cur' : ''}" data-goto="${k + 1}" style="cursor:pointer"><td>${k + 1}</td><td>${nameHTML(C.sname(model, s.from))}</td><td class="sym-i">${esc(s.inp)}</td><td class="sym-o">${esc(s.out)}</td><td>${nameHTML(C.sname(model, s.to))}</td></tr>`).join('');
+  const stop = res.stop && res.stop.reason !== 'nostart' ? `<tr class="stop"><td>${res.stop.at + 1}</td><td>${nameHTML(C.sname(model, res.stop.state))}</td><td class="sym-i">${esc(res.stop.sym)}</td><td colspan="2">${res.stop.reason === 'symbol' ? 'nicht in Σ' : 'keine Kante'}</td></tr>` : '';
+  return `<h2>Ablauf</h2><p class="mut">Klick auf eine Zeile springt zu diesem Schritt.${mealy ? '' : ' Moore gibt schon im Startzustand etwas aus.'}</p>
+  <div class="tbl-wrap"><table class="t"><thead><tr><th>#</th><th>Zustand</th><th>liest</th><th>gibt aus</th><th>neu</th></tr></thead><tbody>
+  ${!mealy && res.startOut != null ? `<tr class="${sim.i === 0 ? 'cur' : ''}" data-goto="0" style="cursor:pointer"><td>0</td><td>${nameHTML(C.sname(model, model.start))}</td><td>–</td><td class="sym-o">${esc(res.startOut)}</td><td></td></tr>` : ''}${rows}${stop}</tbody></table></div>
+  <p style="margin-top:12px">Ausgabewort: <b class="sym-o" style="font-family:var(--mono)">${esc(C.joinSyms(O, C.outputs(model, res))) || 'leer'}</b> <span class="mut">(Länge ${C.outputs(model, res).length} bei ${sim.tokens.length} Eingabezeichen)</span></p>`;
+}
+
+// Panel-Ereignisse
+$('#pbody').addEventListener('input', e => {
+  const el = e.target;
+  if (el.id === 'code') return onCode(el);
+  if (el.id === 'mName') return change(m => { m.name = el.value; }, 'mname');
+  if (el.dataset.cellout) { const sid = el.dataset.cellout, a = el.dataset.sym; return change(m => { const t = C.trOf(m, sid, a)[0]; if (t) t.out = el.value.trim(); }, 'co' + sid + a); }
+  if (el.dataset.sout) return change(m => { C.st(m, el.dataset.sout).out = el.value.trim(); }, 'so' + el.dataset.sout);
+  if (el.dataset.tw != null) return change(m => { m.tests[+el.dataset.tw].w = el.value; }, 'tw' + el.dataset.tw);
+  if (el.dataset.te != null) return change(m => { m.tests[+el.dataset.te].exp = el.value; }, 'te' + el.dataset.te);
+});
+$('#pbody').addEventListener('change', e => {
+  const el = e.target;
+  if (el.id === 'mStart') change(m => { m.start = el.value; });
+  if (el.dataset.cell) {
+    const sid = el.dataset.cell, a = el.dataset.sym, to = el.value;
+    change(m => {
+      const old = C.trOf(m, sid, a); const out = old[0]?.out || (m.type === 'mealy' ? C.omega(m)[0] || '' : '');
+      m.trans = m.trans.filter(t => !(t.from === sid && t.inp === a));
+      if (to) m.trans.push({ id: C.uid('t'), from: sid, to, inp: a, out: m.type === 'mealy' ? out : '' });
+    });
+    renderPanel(true);
+  }
+});
+$('#pbody').addEventListener('keydown', e => {
+  const el = e.target;
+  if (el.dataset.add && e.key === 'Enter') {
+    e.preventDefault(); const syms = el.value.split(/[\s,]+/).filter(Boolean); if (!syms.length) return;
+    const k = el.dataset.add === 'sigma' ? 'sigmaDecl' : 'omegaDecl';
+    change(m => { m[k] = C.uniq([...m[k], ...syms]); }); renderPanel(true);
+    const again = $(`#pbody [data-add="${el.dataset.add}"]`); again?.focus();
+  }
+  if (el.id === 'code' && e.key === 'Tab') { e.preventDefault(); const s = el.selectionStart; el.setRangeText('  ', s, el.selectionEnd, 'end'); onCode(el); }
+});
+$('#pbody').addEventListener('click', e => {
+  const b = e.target.closest('button,[data-selstate],[data-goto]'); if (!b) return;
+  if (b.dataset.rm) { const k = b.dataset.rm === 'sigma' ? 'sigmaDecl' : 'omegaDecl'; const s = b.dataset.sym; change(m => { m[k] = m[k].filter(x => x !== s); }); renderPanel(true); return; }
+  if (b.dataset.selstate) { sel = { kind: 'state', id: b.dataset.selstate }; renderCanvas(); openPop(); return; }
+  if (b.dataset.goto != null) { stopPlay(); sim.i = Math.min(+b.dataset.goto, sim.res.steps.length); renderSim(); return; }
+  if (b.dataset.trm != null) { change(m => { m.tests.splice(+b.dataset.trm, 1); }); renderPanel(true); return; }
+  if (b.dataset.tload != null) { setWord(model.tests[+b.dataset.tload].w); play(); return; }
+  const x = b.dataset.x; if (!x) return;
+  if (x === 'latex') copy(tupleLatex(), 'LaTeX kopiert');
+  if (x === 'copytab') copy(latexTable(), 'Tabelle kopiert');
+  if (x === 'addrow') { const p = freeSpot(); addState(p.x, p.y); renderPanel(true); }
+  if (x === 'fixloops') {
+    const v = C.validate(model); const o = C.omega(model)[0] || '0';
+    change(m => { for (const mi of v.missing) m.trans.push({ id: C.uid('t'), from: mi.sid, to: mi.sid, inp: mi.sym, out: m.type === 'mealy' ? o : '' }); });
+    toast(`${v.missing.length} Schleifen ergänzt${model.type === 'mealy' ? `, Ausgabe ${o}` : ''}. Prüf, ob das so gemeint ist.`);
+  }
+  if (x === 'fixunreach') { const R = C.reachable(model); change(m => { m.states = m.states.filter(s => R.has(s.id)); m.trans = m.trans.filter(t => R.has(t.from) && R.has(t.to)); }); }
+  if (x === 'convert') convertType();
+  if (x === 'minprev') { minPrev = C.minimize(model); renderPanel(true); }
+  if (x === 'minapply' && minPrev?.ok) { const n = minPrev.model; const b4 = minPrev.before; setModel(n); doLayoutQuiet(); toast(`Minimiert: ${b4} → ${n.states.length} Zustände`); }
+  if (x === 'addtest') { change(m => { m.tests.push({ w: '', exp: '' }); }); renderPanel(true); const ins = document.querySelectorAll('#pbody [data-tw]'); ins[ins.length - 1]?.focus(); }
+  if (x === 'curtest') { if (!sim.word) return toast('Erst unten ein Eingabewort eintippen.'); const out = sim.res.stop ? '' : C.joinSyms(C.omega(model), C.outputs(model, sim.res)); change(m => { m.tests.push({ w: sim.word, exp: out }); }); renderPanel(true); }
+  if (x === 'fillexp') { const tr = testResults(); change(m => { m.tests.forEach((t, k) => { if (!t.exp && tr[k].out != null) t.exp = tr[k].out; }); }); renderPanel(true); }
+  if (x === 'solution') showSolution();
+  if (x === 'leavetask') { change(m => { m.task = null; }); renderPanel(true); }
+});
+function freeSpot() {
+  if (!model.states.length) return { x: 0, y: 0 };
+  const xs = model.states.map(s => s.x), ys = model.states.map(s => s.y);
+  return { x: Math.max(...xs) + 150, y: Math.round(ys.reduce((a, b) => a + b, 0) / ys.length / 12) * 12 };
+}
+function doLayoutQuiet() { C.layoutForce(model); recompute(); renderAll(); persist(); requestAnimationFrame(fitView); }
+function tupleLatex() {
+  const m = model, S = C.sigma(m), O = C.omega(m);
+  const set = l => '\\{' + l.map(x => '\\mathsf{' + x.replace(/[_$&#%{}]/g, '\\$&').replace('ε', '\\varepsilon') + '}').join(', ') + '\\}';
+  return `M = (Q, \\Sigma, \\Omega, \\delta, \\lambda, ${C.texName(C.sname(m, m.start) || 'q0')})\\\\\nQ = \\{${m.states.map(s => C.texName(s.name)).join(', ')}\\},\\quad \\Sigma = ${set(S)},\\quad \\Omega = ${set(O)}\\\\\n\\delta\\colon Q \\times \\Sigma \\to Q,\\quad \\lambda\\colon ${m.type === 'mealy' ? 'Q \\times \\Sigma' : 'Q'} \\to \\Omega`;
+}
+function convertType() {
+  if (!model.states.length) { change(m => { m.type = m.type === 'mealy' ? 'moore' : 'mealy'; m.name = m.type === 'mealy' ? 'Neuer Mealy-Automat' : 'Neuer Moore-Automat'; }); return; }
+  if (model.type === 'mealy') {
+    const r = C.mealyToMoore(model); conv = { forName: r.model.name, mapping: r.mapping };
+    setModel(r.model); doLayoutQuiet(); toast(`In Moore umgewandelt: ${r.model.states.length} Zustände`);
+  } else {
+    const r = C.mooreToMealy(model); conv = null; setModel(r.model); toast('In Mealy umgewandelt. Zustände bleiben gleich.');
+  }
+  tab = 'pruefen'; renderTabs(); renderPanel(true);
+}
+
+// ---------- Kopf, Menüs ----------
+function renderHeader() {
+  $('#tMealy').setAttribute('aria-pressed', model.type === 'mealy'); $('#tMoore').setAttribute('aria-pressed', model.type === 'moore');
+  $('#bUndo').disabled = !undoS.length; $('#bRedo').disabled = !redoS.length;
+}
+function renderAll() { renderHeader(); renderTools(); renderCanvas(); renderSim(); renderTabs(); renderPanel(); }
+const MENUS = {
+  datei: () => `<button data-m="new-mealy">Neuer Mealy-Automat</button><button data-m="new-moore">Neuer Moore-Automat</button><hr>
+    <button data-m="open">Öffnen …<small>JSON oder Text</small></button><button data-m="save">Speichern als JSON</button><hr>
+    <button data-m="svg">Bild als SVG</button><button data-m="png">Bild als PNG</button><button data-m="tikz">TikZ für LaTeX</button><button data-m="share">Link zum Teilen</button>`,
+  beispiele: () => EXAMPLES.map(x => `<button data-ex="${x.id}"><span class="col">${esc(x.title)}<span class="note">${esc(x.note)}</span></span></button>`).join(''),
+  aufgaben: () => `<h4>Bauen, dann automatisch prüfen lassen</h4>` + TASKS.map(x => `<button data-task="${x.id}"><span class="col">${esc(x.title)}<span class="note">${x.type === 'mealy' ? 'Mealy' : 'Moore'}, ${x.words.length} Tests</span></span></button>`).join(''),
+  ansicht: () => `<button data-m="layout">Automatisch anordnen<small>L</small></button><button data-m="circle">Im Kreis anordnen</button><button data-m="fit">Alles zeigen<small>F</small></button><hr><button data-m="grid">Punktraster ${$('#gridr').style.display === 'none' ? 'einblenden' : 'ausblenden'}</button>`,
+  hilfe: () => `<button data-m="ref">Kurzreferenz Mealy und Moore</button><button data-m="keys">Tastenkürzel und Bedienung</button>`,
+};
+MENUS.alles = () => `<h4>Datei</h4>${MENUS.datei()}<hr><button data-m="undo">Rückgängig</button><button data-m="redo">Wiederholen</button><hr><h4>Beispiele</h4>${MENUS.beispiele()}<hr><h4>Aufgaben</h4>${TASKS.map(x => `<button data-task="${x.id}">${esc(x.title)}</button>`).join('')}<hr><h4>Ansicht</h4>${MENUS.ansicht()}<hr><h4>Hilfe</h4>${MENUS.hilfe()}`;
+let openMenu = null;
+function toggleMenu(btn) {
+  const dd = $('#dd'); const name = btn.dataset.menu;
+  document.querySelectorAll('[data-menu]').forEach(b => b.setAttribute('aria-expanded', 'false'));
+  if (openMenu === name) { dd.hidden = true; openMenu = null; return; }
+  openMenu = name; dd.innerHTML = MENUS[name](); dd.hidden = false; btn.setAttribute('aria-expanded', 'true');
+  const hr = $('header').getBoundingClientRect(), br = btn.getBoundingClientRect();
+  dd.style.left = Math.min(br.left - hr.left, hr.width - 330) + 'px';
+  dd.style.minWidth = name === 'beispiele' || name === 'aufgaben' ? '330px' : '250px';
+  dd.querySelector('button')?.focus({ preventScroll: true });
+}
+function closeMenu() { $('#dd').hidden = true; openMenu = null; document.querySelectorAll('[data-menu]').forEach(b => b.setAttribute('aria-expanded', 'false')); }
+document.addEventListener('click', e => {
+  const mb = e.target.closest('[data-menu]'); if (mb) { toggleMenu(mb); return; }
+  if (!e.target.closest('#dd')) { if (openMenu) closeMenu(); return; }
+  const b = e.target.closest('button'); if (!b) return;
+  closeMenu();
+  if (b.dataset.ex) return loadExample(b.dataset.ex);
+  if (b.dataset.task) return loadTask(b.dataset.task);
+  ({
+    'new-mealy': () => { setModel(C.blank('mealy')); setWord(''); fitView(); }, 'new-moore': () => { setModel(C.blank('moore')); setWord(''); fitView(); },
+    open: () => $('#fileIn').click(), save: exportJSON, svg: exportSVG, png: exportPNG, tikz: exportTikz, share: shareLink,
+    layout: () => doLayout('force'), circle: () => doLayout('circle'), fit: fitView,
+    grid: () => { const g = $('#gridr'); g.style.display = g.style.display === 'none' ? '' : 'none'; },
+    ref: showRef, keys: showKeys, undo, redo,
+  })[b.dataset.m]?.();
+});
+$('#dd').addEventListener('keydown', e => {
+  const bs = [...$('#dd').querySelectorAll('button')]; const i = bs.indexOf(document.activeElement);
+  if (e.key === 'ArrowDown') { e.preventDefault(); bs[(i + 1) % bs.length]?.focus(); }
+  if (e.key === 'ArrowUp') { e.preventDefault(); bs[(i - 1 + bs.length) % bs.length]?.focus(); }
+  if (e.key === 'Escape') { closeMenu(); }
+});
+$('#tMealy').addEventListener('click', () => { if (model.type !== 'mealy') convertType(); });
+$('#tMoore').addEventListener('click', () => { if (model.type !== 'moore') convertType(); });
+$('#bUndo').addEventListener('click', undo); $('#bRedo').addEventListener('click', redo); $('#bShare').addEventListener('click', shareLink);
+$('#bPanel').addEventListener('click', () => $('#app').classList.toggle('panel-open'));
+$('#bSheetClose').addEventListener('click', () => $('#app').classList.remove('panel-open'));
+$('#chip').addEventListener('click', () => { tab = 'pruefen'; renderTabs(); renderPanel(true); $('#app').classList.add('panel-open'); });
+$('#zIn').addEventListener('click', () => { const r = cv.getBoundingClientRect(); zoomAt(1.25, r.width / 2, r.height / 2); });
+$('#zOut').addEventListener('click', () => { const r = cv.getBoundingClientRect(); zoomAt(0.8, r.width / 2, r.height / 2); });
+$('#zFit').addEventListener('click', fitView);
+
+function fromDSL(text, pos, bends) {
+  const { model: m } = C.parseText(text, null);
+  const byName = n => m.states.find(s => s.name === n)?.id;
+  if (pos) for (const s of m.states) if (pos[s.name]) { s.x = pos[s.name][0]; s.y = pos[s.name][1]; }
+  if (bends) for (const [k, v] of Object.entries(bends)) {
+    if (k.startsWith('loop:')) { const id = byName(k.slice(5)); if (id) m.bends['loop:' + id] = v; }
+    else { const [a, b] = k.split('>'); if (byName(a) && byName(b)) m.bends[byName(a) + '>' + byName(b)] = v; }
+  }
+  C.placeMissing(m); return m;
+}
+function loadExample(id) {
+  const ex = EXAMPLES.find(x => x.id === id); const m = fromDSL(ex.text, ex.pos, ex.bends);
+  m.tests = (ex.tests || []).map(t => ({ ...t }));
+  conv = null; setModel(m); setWord(ex.word); requestAnimationFrame(fitView); toast(`Beispiel: ${ex.title}`);
+}
+function loadTask(id) {
+  const t = TASKS.find(x => x.id === id); const ref = fromDSL(t.ref); ref.sigmaDecl = t.sigma; ref.omegaDecl = t.omega;
+  const m = C.blank(t.type); m.name = t.title; m.sigmaDecl = [...t.sigma]; m.omegaDecl = [...t.omega]; m.task = t.id;
+  m.tests = t.words.map(w => ({ w, exp: C.joinSyms(C.omega(ref), C.outputs(ref, C.run(ref, C.tokenize(C.sigma(ref), w)))) }));
+  conv = null; setModel(m); setWord(t.words[0]); tab = 'tests'; renderTabs(); renderPanel(true); $('#app').classList.add('panel-open');
+  requestAnimationFrame(fitView); toast('Aufgabe geladen. Leg los auf dem leeren Blatt.');
+}
+function showSolution() {
+  const t = TASKS.find(x => x.id === model.task); if (!t) return;
+  openDlg('Lösung zeigen?', `<p>Damit wird dein Automat durch eine Musterlösung ersetzt. Mit Rückgängig kommst du zurück.</p><div class="brow"><button class="btn pri" id="solYes">Lösung laden</button><button class="btn" id="solNo">Doch nicht</button></div>`);
+  $('#solYes').onclick = () => { const m = fromDSL(t.ref); m.sigmaDecl = [...t.sigma]; m.omegaDecl = [...t.omega]; m.name = t.title + ' (Lösung)'; m.task = t.id; m.tests = JSON.parse(JSON.stringify(model.tests)); C.layoutForce(m); setModel(m); closeDlg(); requestAnimationFrame(fitView); };
+  $('#solNo').onclick = closeDlg;
+}
+
+// ---------- Eingabewort, Abspielen ----------
+function setWord(w) { sim.word = w; $('#word').value = w; stopPlay(); sim.i = 0; recompute(); renderSim(); persist(); }
+$('#word').addEventListener('input', e => { sim.word = e.target.value; stopPlay(); sim.i = 0; recompute(); renderSim(); persist(); });
+$('#word').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); play(); } });
+$('#sPlay').addEventListener('click', () => sim.playing ? stopPlay() : play());
+$('#sStep').addEventListener('click', stepOnce);
+$('#sBack').addEventListener('click', () => { stopPlay(); sim.i = Math.max(0, sim.i - 1); renderSim(); });
+$('#sReset').addEventListener('click', () => { stopPlay(); sim.i = 0; renderSim(); });
+$('#sEnd').addEventListener('click', () => { stopPlay(); sim.i = sim.res.steps.length; renderSim(); });
+$('#speed').addEventListener('input', e => { sim.speed = SPEEDS[+e.target.value]; $('#speedO').textContent = String(sim.speed).replace('.', ',') + '×'; });
+
+// ---------- Tastatur ----------
+document.addEventListener('keydown', e => {
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName) || document.activeElement?.isContentEditable;
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
+  if (mod && e.key.toLowerCase() === 'y' && !typing) { e.preventDefault(); redo(); return; }
+  if (typing || mod || $('#dlg').open) return;
+  const k = e.key;
+  if (k === 'Escape') { closeMenu(); closePop(); pendingFrom = null; sel = null; $('#app').classList.remove('panel-open'); renderCanvas(); return; }
+  if (k === 'Delete' || k === 'Backspace') { if (sel) { e.preventDefault(); deleteSel(); } return; }
+  const map = { v: () => setTool('select'), z: () => setTool('state'), k: () => setTool('edge'), x: () => setTool('delete'), l: () => doLayout('force'), f: fitView, '?': showKeys,
+    ' ': () => sim.playing ? stopPlay() : play(), ArrowRight: stepOnce, ArrowLeft: () => { stopPlay(); sim.i = Math.max(0, sim.i - 1); renderSim(); },
+    Home: () => { stopPlay(); sim.i = 0; renderSim(); }, End: () => { stopPlay(); sim.i = sim.res.steps.length; renderSim(); } };
+  const f = map[k] || map[k.toLowerCase()];
+  if (f) { e.preventDefault(); f(); }
+});
+
+// ---------- Dialoge, Export ----------
+function openDlg(title, html) { $('#dlgT').textContent = title; $('#dlgB').innerHTML = html; const d = $('#dlg'); if (!d.open) { try { d.showModal(); } catch (e) { d.setAttribute('open', ''); } } }
+function closeDlg() { const d = $('#dlg'); try { d.close(); } catch (e) { d.removeAttribute('open'); } }
+$('#dlgX').addEventListener('click', closeDlg);
+$('#dlg').addEventListener('click', e => { if (e.target === $('#dlg')) closeDlg(); });
+let toastT;
+function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), 2600); }
+async function copy(text, msg = 'Kopiert') {
+  try { await navigator.clipboard.writeText(text); toast(msg); }
+  catch (e) { const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); let ok = false; try { ok = document.execCommand('copy'); } catch (_) {} ta.remove(); toast(ok ? msg : 'Kopieren ging nicht. Markier den Text von Hand.'); }
+}
+let dlNs = null; const dlReady = window.claude?.use ? Promise.resolve(window.claude.use('downloads')).then(n => (dlNs = n)).catch(() => null) : null;
+async function download(name, data, type) {
+  if (dlReady) {
+    const ns = dlNs || await dlReady;
+    if (ns) {
+      try { await ns.save({ filename: name.replace(/\.tex$/, '.txt'), data }); toast('Gespeichert'); }
+      catch (e) { if (e?.code !== 'declined') toast('Speichern ging hier nicht. Nimm Kopieren.'); }
+      return;
+    }
+  }
+  try { const url = URL.createObjectURL(data instanceof Blob ? data : new Blob([data], { type })); const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000); } catch (e) {}
+}
+const fileBase = () => (model.name || 'automat').toLowerCase().replace(/[^a-z0-9äöüß]+/gi, '-').replace(/^-|-$/g, '') || 'automat';
+function exportDlg(title, text, file, type, note) {
+  openDlg(title, `${note ? `<p class="mut">${note}</p>` : ''}<textarea readonly id="expTa" spellcheck="false">${esc(text)}</textarea><div class="brow" style="margin-top:10px"><button class="btn pri" id="expCopy">Kopieren</button><button class="btn" id="expDl">Herunterladen</button></div>`);
+  $('#expCopy').onclick = () => copy(text); $('#expDl').onclick = () => download(file, text, type);
+}
+function exportJSON() { exportDlg('Speichern', JSON.stringify(model, null, 1), fileBase() + '.json', 'application/json', 'Diese Datei kannst du später über Datei → Öffnen wieder laden.'); }
+function exportTikz() { exportDlg('TikZ für LaTeX', C.toTikz(model), fileBase() + '.tex', 'text/plain', 'Passt zum Stil der Übersicht. Im Dokument braucht es tikz mit den Bibliotheken automata und arrows.meta.'); }
+const EXPORT_CSS = `.st-c{fill:#fff;stroke:#14171c;stroke-width:1.6}.st-n{font-family:'Crimson Pro',Georgia,serif;font-style:italic;font-size:21px;fill:#14171c;text-anchor:middle}.st-n .sub{font-style:normal;font-size:14px}.st-o{font-family:'Fira Sans',Arial,sans-serif;font-weight:500;font-size:14px;fill:#d9441b;text-anchor:middle}.st-div{stroke:#dde1e6;stroke-width:1.2}.st-start{stroke:#14171c;stroke-width:1.6;fill:none}.ed-p{fill:none;stroke:#14171c;stroke-width:1.5}.lb-bg{fill:#fff}.lb text{font-family:'Fira Sans',Arial,sans-serif;font-size:15px;font-weight:500;text-anchor:middle}.lb .i{fill:#2457c5}.lb .o{fill:#d9441b}.lb .s{fill:#5b6472;font-weight:400}.lb .miss{fill:#b0123e}`;
+function buildSVG() {
+  const b = bbox() || { x0: 0, y0: 0, x1: 100, y1: 100 }; const pad = 16;
+  const w = b.x1 - b.x0 + pad * 2, h = b.y1 - b.y0 + pad * 2;
+  return { w, h, svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${(b.x0 - pad).toFixed(0)} ${(b.y0 - pad).toFixed(0)} ${w.toFixed(0)} ${h.toFixed(0)}" width="${w.toFixed(0)}" height="${h.toFixed(0)}"><style>${EXPORT_CSS}</style><defs><marker id="ar" viewBox="0 0 12 10" refX="11" refY="5" markerWidth="12" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0.5 L12,5 L0,9.5 L2.6,5 z" fill="#14171c"/></marker></defs><rect x="${(b.x0 - pad).toFixed(0)}" y="${(b.y0 - pad).toFixed(0)}" width="${w.toFixed(0)}" height="${h.toFixed(0)}" fill="#fff"/>${svgEdges(model, { export: true }).replace(/url\(#ar[SH]\)/g, 'url(#ar)')}${svgStates(model, { export: true })}</svg>` };
+}
+function exportSVG() { if (!model.states.length) return toast('Das Blatt ist leer.'); const { svg } = buildSVG(); exportDlg('Bild als SVG', svg, fileBase() + '.svg', 'image/svg+xml', 'Vektorgrafik, bleibt in Notability, Word oder LaTeX scharf.'); }
+function exportPNG() {
+  if (!model.states.length) return toast('Das Blatt ist leer.');
+  const { svg, w, h } = buildSVG(); const img = new Image(); const sc = 3;
+  img.onload = () => {
+    const c = document.createElement('canvas'); c.width = w * sc; c.height = h * sc; const g = c.getContext('2d'); g.scale(sc, sc); g.drawImage(img, 0, 0, w, h);
+    const url = c.toDataURL('image/png');
+    openDlg('Bild als PNG', `<p class="mut">Dreifache Auflösung. Falls Herunterladen hier gesperrt ist: Bild gedrückt halten oder Rechtsklick und „Bild speichern“.</p><img src="${url}" alt="Automat als Bild" style="max-width:100%;border:1px solid var(--rule);border-radius:10px;background:#fff"><div class="brow" style="margin-top:10px"><button class="btn pri" id="pngDl">Herunterladen</button></div>`);
+    $('#pngDl').onclick = () => c.toBlob(bl => download(fileBase() + '.png', bl));
+  };
+  img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+}
+// Link: JSON, wenn möglich komprimiert, als Hex (nur Buchstaben und Ziffern)
+const hex = u8 => [...u8].map(b => b.toString(16).padStart(2, '0')).join('');
+const unhex = s => new Uint8Array(s.match(/../g).map(h => parseInt(h, 16)));
+async function pack(obj) {
+  const raw = new TextEncoder().encode(JSON.stringify(obj));
+  if (window.CompressionStream) { try { const s = new Blob([raw]).stream().pipeThrough(new CompressionStream('deflate-raw')); return 'z' + hex(new Uint8Array(await new Response(s).arrayBuffer())); } catch (e) {} }
+  return 'r' + hex(raw);
+}
+async function unpack(str) {
+  const kind = str[0], bytes = unhex(str.slice(1));
+  if (kind === 'z') { const s = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw')); return JSON.parse(await new Response(s).text()); }
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+async function shareLink() {
+  const slim = { ...model, task: model.task }; const code = await pack({ m: slim, w: sim.word });
+  const url = location.href.split('#')[0] + '#a' + code;
+  openDlg('Link zum Teilen', `<p class="mut">Der ganze Automat steckt im Link, es wird nichts hochgeladen. Wer ihn öffnet, sieht genau diesen Stand. Am zuverlässigsten klappt das mit der Version auf GitHub Pages.</p><textarea readonly style="min-height:110px">${esc(url)}</textarea><div class="brow" style="margin-top:10px"><button class="btn pri" id="lnkCopy">Link kopieren</button></div>`);
+  $('#lnkCopy').onclick = () => copy(url, 'Link kopiert');
+}
+$('#fileIn').addEventListener('change', async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  const txt = await f.text();
+  try {
+    let m;
+    if (txt.trim().startsWith('{')) m = C.normalize(JSON.parse(txt));
+    else { const r = C.parseText(txt, null); if (r.errors.length) throw new Error(`Zeile ${r.errors[0].line}: ${r.errors[0].msg}`); m = r.model; C.placeMissing(m); }
+    setModel(m); requestAnimationFrame(fitView); toast(`Geöffnet: ${m.name}`);
+  } catch (err) { toast('Datei ließ sich nicht lesen. ' + (err.message || '')); }
+});
+
+function showRef() {
+  openDlg('Kurzreferenz', `<div class="cols2 ref"><div><h3>Mealy-Automat</h3><p class="tuple" style="font-size:22px;margin:4px 0 8px">M = (Q, <span class="sym-i">Σ</span>, <span class="sym-o">Ω</span>, δ, <span class="sym-o">λ</span>, q<sub>0</sub>)</p>
+  <p>δ: Q × <span class="sym-i">Σ</span> → Q<br><span class="sym-o">λ</span>: Q × <span class="sym-i">Σ</span> → <span class="sym-o">Ω</span></p><p>Ausgabe an der Kante, geschrieben als <span class="sym-i">a</span> / <span class="sym-o">y</span>. Bei n Eingabezeichen kommen n Ausgabezeichen heraus.</p></div>
+  <div><h3>Moore-Automat</h3><p class="tuple" style="font-size:22px;margin:4px 0 8px">M = (Q, <span class="sym-i">Σ</span>, <span class="sym-o">Ω</span>, δ, <span class="sym-o">λ</span>, q<sub>0</sub>)</p>
+  <p>δ: Q × <span class="sym-i">Σ</span> → Q<br><span class="sym-o">λ</span>: Q → <span class="sym-o">Ω</span></p><p>Ausgabe im Zustand, geschrieben als q / <span class="sym-o">y</span>. Der Startzustand gibt schon aus, also n + 1 Zeichen. Manche Bücher zählen die erste Ausgabe nicht mit.</p></div></div>
+  <h3>Woran man einen vollständigen Automaten erkennt</h3><p>Von jedem Zustand geht für jedes Zeichen aus Σ genau eine Kante ab. Das sind |Q| · |Σ| Kanten. Endzustände gibt es bei beiden nicht.</p>
+  <h3>Umwandeln</h3><p>Moore → Mealy: Die Ausgabe des Zielzustands wird an jede eingehende Kante geschrieben, λ'(q, a) = λ(δ(q, a)).<br>Mealy → Moore: Neue Zustände sind Paare (q, y) aus Zustand und zuletzt ausgegebenem Zeichen. Der Moore-Automat hat dadurch oft mehr Zustände.</p>
+  <h3>Minimieren</h3><p>Zuerst nach Ausgabeverhalten in Klassen teilen (P<sub>0</sub>). Dann Zustände trennen, deren Folgezustände in verschiedenen Klassen liegen (P<sub>1</sub>, P<sub>2</sub>, …), bis sich nichts mehr ändert. Jede Klasse wird ein Zustand.</p>
+  <h3>Andere Schreibweisen</h3><p>Q auch Z oder S, Σ auch E oder X, Ω auch A, Y oder Γ, λ auch g oder ω, q<sub>0</sub> auch z<sub>0</sub>.</p>`);
+}
+function showKeys() {
+  const K = [['Doppelklick auf die Fläche', 'Zustand anlegen'], ['Ziehen am Plus eines Zustands', 'Kante ziehen (oder mit Umschalt ziehen)'], ['Ziehen an einer Beschriftung', 'Kante biegen, Schleife drehen'], ['Doppelklick auf Zustand', 'Umbenennen'],
+    ['V Z K X', 'Werkzeug: Auswahl, Zustand, Kante, Löschen'], ['Entf', 'Auswahl löschen'], ['Strg Z / Strg Y', 'Rückgängig, Wiederholen'], ['Leertaste', 'Abspielen, Anhalten'], ['← →', 'Schritt zurück, vor'], ['Pos1 Ende', 'Anfang, Ende'],
+    ['L', 'Automatisch anordnen'], ['F', 'Alles zeigen'], ['Strg + Mausrad, Zwei Finger', 'Zoomen'], ['Fläche ziehen, Mausrad', 'Verschieben'], ['Alt beim Ziehen', 'Ohne Raster einrasten']];
+  openDlg('Bedienung', `<div class="keys">${K.map(([a, b]) => `<span><kbd>${esc(a)}</kbd></span><span>${esc(b)}</span>`).join('')}</div>
+  <p class="mut" style="margin-top:14px">Auf dem iPad: Werkzeug oben links wählen, dann tippen. Mit dem Kanten-Werkzeug erst den Start-, dann den Zielzustand antippen. Alles läuft im Browser, gespeichert wird nur auf diesem Gerät.</p>`);
+}
+
+// ---------- Start ----------
+function snapshot() { return { model, word: sim.word, tab }; }
+async function boot(data) {
+  let loaded = false;
+  const h = location.hash.slice(1);
+  if (h.startsWith('a') && h.length > 4) { try { const d = await unpack(h.slice(1)); model = C.normalize(d.m); sim.word = d.w || ''; loaded = true; } catch (e) {} }
+  if (!loaded && data && data.model) { model = C.normalize(data.model); sim.word = data.word || ''; tab = data.tab || tab; loaded = true; }
+  if (!loaded) { try { const d = JSON.parse(localStorage.getItem(LS) || 'null'); if (d?.model?.states) { model = C.normalize(d.model); sim.word = d.word || ''; tab = d.tab || tab; loaded = true; } } catch (e) {} }
+  if (!loaded) { const ex = EXAMPLES[0]; model = fromDSL(ex.text, ex.pos, ex.bends); model.tests = ex.tests.map(t => ({ ...t })); sim.word = ex.word; sim.i = 2; }
+  C.placeMissing(model);
+  $('#word').value = sim.word;
+  ['bUndo', 'bRedo', 'bShare', 'bMenu', 'bPanel'].forEach(id => { $('#' + id).innerHTML = ICON[{ bUndo: 'undo', bRedo: 'redo', bShare: 'share', bMenu: 'menu', bPanel: 'panel' }[id]] + (id === 'bShare' ? '<span>Teilen</span>' : ''); });
+  $('#zIn').innerHTML = ICON.plus; $('#zOut').innerHTML = ICON.minus; $('#zFit').innerHTML = ICON.fit;
+  $('#sReset').innerHTML = ICON.reset; $('#sBack').innerHTML = ICON.back; $('#sStep').innerHTML = ICON.step; $('#sEnd').innerHTML = ICON.end;
+  const keepI = sim.i; recompute(); sim.i = Math.min(keepI, sim.res.steps.length);
+  updatePlayBtn(); renderAll(); fitView();
+  new ResizeObserver(() => { placePop(); }).observe($('#stage'));
+  let lastW = $('#stage').clientWidth;
+  window.addEventListener('resize', () => { const w = $('#stage').clientWidth; if (Math.abs(w - lastW) > 80) { lastW = w; fitView(); } });
+  window.claude?.hot?.snapshot?.(snapshot);
+  if (document.fonts?.ready) document.fonts.ready.then(() => renderCanvas());
+}
+window.addEventListener('hashchange', () => { if (location.hash.startsWith('#a')) boot(null); });
+window.claude?.hot?.ready ? window.claude.hot.ready(boot) : boot(window.claude?.hot?.data ?? {});
+window.__T = { get model() { return model; }, sim, C, setWord, play, loadExample, loadTask, fitView };
+}
+
+</script>
+</body>
+</html>
